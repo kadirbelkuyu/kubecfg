@@ -53,6 +53,7 @@ brews:
     repository:
       owner: kadirbelkuyu
       name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     commit_author:
       name: goreleaserbot
       email: bot@goreleaser.com
