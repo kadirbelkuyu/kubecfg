@@ -75,7 +75,7 @@ sudo apt update && sudo apt install kubecfg
 
 - **Add** - Import kubeconfig files with custom context names
 - **List** - View all contexts with cluster details
-- **Use** - Interactive context switching with namespace selection
+- **Use** - Interactive context switching with optional namespace selection
 - **Namespace** - Switch namespaces with interactive picker
 - **Remove** - Delete contexts with confirmation
 - **Rename** - Change context names
@@ -107,7 +107,13 @@ Direct switch:
 kubecfg use production-eks
 ```
 
-With namespace:
+With interactive namespace selection:
+```bash
+kubecfg use -n
+kubecfg use production-eks -n
+```
+
+With specific namespace:
 ```bash
 kubecfg use production-eks -n kube-system
 ```
@@ -159,6 +165,7 @@ kubecfg merge config1.yaml config2.yaml -o merged.yaml
 | Flag | Description |
 |------|-------------|
 | `--kubeconfig` | Path to kubeconfig file (default: `~/.kube/config`) |
+| `-n, --namespace` | Set namespace for context (use without value for interactive selection) |
 
 ## License
 
