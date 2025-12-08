@@ -9,6 +9,7 @@ A CLI tool for managing Kubernetes kubeconfig files.
 ### Homebrew
 
 ```bash
+brew tap kadirbelkuyu/tap
 brew install kadirbelkuyu/tap/kubecfg
 ```
 
