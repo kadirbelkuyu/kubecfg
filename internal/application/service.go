@@ -173,7 +173,7 @@ func (s *Service) ListContexts(targetPath string) ([]ContextInfo, error) {
 	return contexts, nil
 }
 
-func (s *Service) UseContext(targetPath, contextName string) error {
+func (s *Service) UseContext(targetPath, contextName, namespace string) error {
 	if !s.repo.Exists(targetPath) {
 		return domain.ErrConfigNotFound
 	}
@@ -183,11 +183,58 @@ func (s *Service) UseContext(targetPath, contextName string) error {
 		return err
 	}
 
-	if _, idx := config.FindContext(contextName); idx < 0 {
+	_, idx := config.FindContext(contextName)
+	if idx < 0 {
 		return domain.ErrContextNotFound
 	}
 
 	config.CurrentContext = contextName
+
+	if namespace != "" {
+		config.Contexts[idx].Context.Namespace = namespace
+	}
+
+	return s.repo.Save(targetPath, config)
+}
+
+func (s *Service) GetContextNamespace(targetPath, contextName string) (string, error) {
+	if !s.repo.Exists(targetPath) {
+		return "", domain.ErrConfigNotFound
+	}
+
+	config, err := s.repo.Load(targetPath)
+	if err != nil {
+		return "", err
+	}
+
+	ctx, idx := config.FindContext(contextName)
+	if idx < 0 {
+		return "", domain.ErrContextNotFound
+	}
+
+	return ctx.Context.Namespace, nil
+}
+
+func (s *Service) SetNamespace(targetPath, namespace string) error {
+	if !s.repo.Exists(targetPath) {
+		return domain.ErrConfigNotFound
+	}
+
+	config, err := s.repo.Load(targetPath)
+	if err != nil {
+		return err
+	}
+
+	if config.CurrentContext == "" {
+		return domain.ErrNoCurrentContext
+	}
+
+	_, idx := config.FindContext(config.CurrentContext)
+	if idx < 0 {
+		return domain.ErrContextNotFound
+	}
+
+	config.Contexts[idx].Context.Namespace = namespace
 
 	return s.repo.Save(targetPath, config)
 }
