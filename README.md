@@ -9,6 +9,7 @@ A CLI tool for managing Kubernetes kubeconfig files.
 ### Homebrew
 
 ```bash
+brew tap kadirbelkuyu/tap
 brew install kadirbelkuyu/tap/kubecfg
 ```
 
@@ -74,7 +75,8 @@ sudo apt update && sudo apt install kubecfg
 
 - **Add** - Import kubeconfig files with custom context names
 - **List** - View all contexts with cluster details
-- **Use** - Interactive context switching
+- **Use** - Interactive context switching with optional namespace selection
+- **Namespace** - Switch namespaces with interactive picker
 - **Remove** - Delete contexts with confirmation
 - **Rename** - Change context names
 - **Merge** - Combine multiple kubeconfig files
@@ -103,6 +105,34 @@ kubecfg use
 Direct switch:
 ```bash
 kubecfg use production-eks
+```
+
+With interactive namespace selection:
+```bash
+kubecfg use -n
+kubecfg use production-eks -n
+```
+
+With specific namespace:
+```bash
+kubecfg use production-eks -n kube-system
+```
+
+### Switch Namespace
+
+Interactive mode:
+```bash
+kubecfg ns
+```
+
+Direct switch:
+```bash
+kubecfg ns kube-system
+```
+
+Show current namespace:
+```bash
+kubecfg ns current
 ```
 
 ### Show Current Context
@@ -135,6 +165,7 @@ kubecfg merge config1.yaml config2.yaml -o merged.yaml
 | Flag | Description |
 |------|-------------|
 | `--kubeconfig` | Path to kubeconfig file (default: `~/.kube/config`) |
+| `-n, --namespace` | Set namespace for context (use without value for interactive selection) |
 
 ## License
 

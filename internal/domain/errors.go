@@ -11,4 +11,5 @@ var (
 	ErrInvalidConfig    = errors.New("invalid kubeconfig format")
 	ErrBackupFailed     = errors.New("failed to create backup")
 	ErrPermissionDenied = errors.New("permission denied")
+	ErrNoCurrentContext = errors.New("no current context set")
 )
