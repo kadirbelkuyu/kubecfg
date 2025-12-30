@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/kadirbelkuyu/kubecfg/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -20,7 +21,7 @@ var removeCmd = &cobra.Command{
 		contextName := args[0]
 
 		if !removeForce {
-			fmt.Printf("Remove context '%s'? [y/N]: ", contextName)
+			fmt.Printf("%s Remove context '%s'? [y/N]: ", ui.IconWarning, ui.ContextName(contextName))
 			reader := bufio.NewReader(os.Stdin)
 			response, _ := reader.ReadString('\n')
 			response = strings.TrimSpace(strings.ToLower(response))
@@ -35,7 +36,7 @@ var removeCmd = &cobra.Command{
 			return
 		}
 
-		printSuccess("Context '" + contextName + "' removed successfully")
+		printSuccess(fmt.Sprintf("Context '%s' removed successfully", ui.ContextName(contextName)))
 	},
 }
 

@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"fmt"
+
+	"github.com/kadirbelkuyu/kubecfg/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -18,7 +21,7 @@ var renameCmd = &cobra.Command{
 			return
 		}
 
-		printSuccess("Context '" + oldName + "' renamed to '" + newName + "'")
+		printSuccess(fmt.Sprintf("Context '%s' renamed to '%s'", ui.ContextName(oldName), ui.ContextName(newName)))
 	},
 }
 

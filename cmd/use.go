@@ -6,6 +6,7 @@ import (
 
 	"github.com/kadirbelkuyu/kubecfg/internal/application"
 	"github.com/kadirbelkuyu/kubecfg/internal/infrastructure"
+	"github.com/kadirbelkuyu/kubecfg/internal/ui"
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
 )
@@ -66,15 +67,15 @@ func selectContextInteractive(contexts []application.ContextInfo) string {
 	}
 
 	prompt := promptui.Select{
-		Label:     "Select context",
+		Label:     ui.IconContext + " Select context",
 		Items:     items,
 		CursorPos: currentIdx,
 		Size:      10,
 		Templates: &promptui.SelectTemplates{
 			Label:    "{{ . }}",
-			Active:   "\033[33m▸ {{ . }}\033[0m",
+			Active:   fmt.Sprintf("\033[33m%s {{ . }}\033[0m", ui.IconCurrent),
 			Inactive: "  {{ . }}",
-			Selected: "\033[32m✓ {{ . }}\033[0m",
+			Selected: fmt.Sprintf("\033[32m%s {{ . }}\033[0m", ui.IconCheck),
 		},
 		HideHelp: true,
 		Stdout:   os.Stderr,
@@ -105,10 +106,11 @@ func resolveNamespace(cmd *cobra.Command, contextName string) string {
 
 func printContextSwitchResult(contextName, namespace string) {
 	if namespace != "" {
-		printSuccess(fmt.Sprintf("Switched to context '%s' with namespace '%s'", contextName, namespace))
+		printSuccess(fmt.Sprintf("Switched to context '%s' with namespace '%s'",
+			ui.ContextName(contextName), ui.Namespace(namespace)))
 		return
 	}
-	printSuccess("Switched to context '" + contextName + "'")
+	printSuccess(fmt.Sprintf("Switched to context '%s'", ui.ContextName(contextName)))
 }
 
 func selectNamespaceForContext(contextName string) string {
@@ -136,15 +138,15 @@ func selectNamespaceForContext(contextName string) string {
 	}
 
 	prompt := promptui.Select{
-		Label:     "Select namespace",
+		Label:     ui.IconNamespace + " Select namespace",
 		Items:     items,
 		CursorPos: currentIdx,
 		Size:      10,
 		Templates: &promptui.SelectTemplates{
 			Label:    "{{ . }}",
-			Active:   "\033[33m▸ {{ . }}\033[0m",
+			Active:   fmt.Sprintf("\033[33m%s {{ . }}\033[0m", ui.IconCurrent),
 			Inactive: "  {{ . }}",
-			Selected: "\033[32m✓ {{ . }}\033[0m",
+			Selected: fmt.Sprintf("\033[32m%s {{ . }}\033[0m", ui.IconCheck),
 		},
 		HideHelp: true,
 		Stdout:   os.Stderr,
