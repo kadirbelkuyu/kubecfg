@@ -183,11 +183,10 @@ kubecfg merge config1.yaml config2.yaml -o merged.yaml
 
 ### Contributing
 
-1. Follow the [Git Workflow Guide](docs/GIT_WORKFLOW.md)
-2. Use [Conventional Commits](https://www.conventionalcommits.org/)
-3. Create feature branches: `feature/your-feature-name`
-4. Use `--no-ff` merge to main
-5. Follow [Semantic Versioning](https://semver.org/)
+1. Use [Conventional Commits](https://www.conventionalcommits.org/)
+2. Create feature branches: `feature/your-feature-name`
+3. Use `--no-ff` merge to main
+4. Follow [Semantic Versioning](https://semver.org/)
 
 ## License
 
