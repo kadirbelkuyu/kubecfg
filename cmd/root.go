@@ -6,6 +6,7 @@ import (
 
 	"github.com/kadirbelkuyu/kubecfg/internal/application"
 	"github.com/kadirbelkuyu/kubecfg/internal/infrastructure"
+	"github.com/kadirbelkuyu/kubecfg/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -38,9 +39,17 @@ func init() {
 }
 
 func printError(err error) {
-	fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	fmt.Fprintln(os.Stderr, ui.Error(err.Error()))
 }
 
 func printSuccess(message string) {
-	fmt.Println(message)
+	fmt.Println(ui.Success(message))
+}
+
+func printWarning(message string) {
+	fmt.Fprintln(os.Stderr, ui.Warning(message))
+}
+
+func printInfo(message string) {
+	fmt.Println(ui.Info(message))
 }

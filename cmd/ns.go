@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/kadirbelkuyu/kubecfg/internal/infrastructure"
+	"github.com/kadirbelkuyu/kubecfg/internal/ui"
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
 )
@@ -52,7 +53,7 @@ var nsCmd = &cobra.Command{
 			return
 		}
 
-		printSuccess(fmt.Sprintf("Namespace set to '%s'", namespace))
+		printSuccess(fmt.Sprintf("Namespace set to '%s'", ui.Namespace(namespace)))
 	},
 }
 
@@ -60,7 +61,7 @@ func selectNamespace(currentNs string) string {
 	k8sClient := infrastructure.NewKubernetesClient(kubeconfigPath)
 	namespaces, err := k8sClient.ListNamespaces()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Could not fetch namespaces from cluster: %v\n", err)
+		printWarning(fmt.Sprintf("Could not fetch namespaces from cluster: %v", err))
 		return promptNamespaceManual(currentNs)
 	}
 
@@ -77,15 +78,15 @@ func selectNamespace(currentNs string) string {
 	}
 
 	prompt := promptui.Select{
-		Label:     "Select namespace",
+		Label:     ui.IconNamespace + " Select namespace",
 		Items:     namespaces,
 		CursorPos: currentIdx,
 		Size:      10,
 		Templates: &promptui.SelectTemplates{
 			Label:    "{{ . }}",
-			Active:   "\033[33m▸ {{ . }}\033[0m",
+			Active:   fmt.Sprintf("\033[33m%s {{ . }}\033[0m", ui.IconCurrent),
 			Inactive: "  {{ . }}",
-			Selected: "\033[32m✓ {{ . }}\033[0m",
+			Selected: fmt.Sprintf("\033[32m%s {{ . }}\033[0m", ui.IconCheck),
 		},
 		HideHelp: true,
 		Stdout:   os.Stderr,
@@ -104,9 +105,17 @@ func selectNamespace(currentNs string) string {
 }
 
 func promptNamespaceManual(currentNs string) string {
+	templates := &promptui.PromptTemplates{
+		Prompt:  fmt.Sprintf("%s {{ . }} ", ui.IconNamespace),
+		Valid:   fmt.Sprintf("%s {{ . }} ", ui.IconNamespace),
+		Invalid: fmt.Sprintf("%s {{ . }} ", ui.IconError),
+		Success: fmt.Sprintf("%s {{ . }} ", ui.IconCheck),
+	}
+
 	prompt := promptui.Prompt{
-		Label:   "Enter namespace",
-		Default: currentNs,
+		Label:     "Enter namespace",
+		Default:   currentNs,
+		Templates: templates,
 	}
 
 	result, err := prompt.Run()
@@ -131,11 +140,11 @@ var nsCurrentCmd = &cobra.Command{
 
 		for _, ctx := range contexts {
 			if ctx.Current {
-				if ctx.Namespace == "" {
-					fmt.Fprintln(os.Stdout, "default")
-				} else {
-					fmt.Fprintln(os.Stdout, ctx.Namespace)
+				ns := ctx.Namespace
+				if ns == "" {
+					ns = "default"
 				}
+				fmt.Println(ui.Namespace(ns))
 				return
 			}
 		}
