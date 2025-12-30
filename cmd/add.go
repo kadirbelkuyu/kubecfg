@@ -33,6 +33,6 @@ var addCmd = &cobra.Command{
 
 func init() {
 	addCmd.Flags().StringVarP(&addName, "name", "n", "", "name for the new context (required)")
-	addCmd.MarkFlagRequired("name")
+	_ = addCmd.MarkFlagRequired("name")
 	rootCmd.AddCommand(addCmd)
 }

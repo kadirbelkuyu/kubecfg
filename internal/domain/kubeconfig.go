@@ -1,13 +1,13 @@
 package domain
 
 type KubeConfig struct {
-	APIVersion     string           `yaml:"apiVersion"`
-	Kind           string           `yaml:"kind"`
-	CurrentContext string           `yaml:"current-context"`
-	Clusters       []ClusterEntry   `yaml:"clusters"`
-	Contexts       []ContextEntry   `yaml:"contexts"`
-	Users          []UserEntry      `yaml:"users"`
-	Preferences    map[string]any   `yaml:"preferences,omitempty"`
+	APIVersion     string         `yaml:"apiVersion"`
+	Kind           string         `yaml:"kind"`
+	CurrentContext string         `yaml:"current-context"`
+	Clusters       []ClusterEntry `yaml:"clusters"`
+	Contexts       []ContextEntry `yaml:"contexts"`
+	Users          []UserEntry    `yaml:"users"`
+	Preferences    map[string]any `yaml:"preferences,omitempty"`
 }
 
 type ClusterEntry struct {
@@ -39,25 +39,25 @@ type UserEntry struct {
 }
 
 type User struct {
-	ClientCertificate     string     `yaml:"client-certificate,omitempty"`
-	ClientCertificateData string     `yaml:"client-certificate-data,omitempty"`
-	ClientKey             string     `yaml:"client-key,omitempty"`
-	ClientKeyData         string     `yaml:"client-key-data,omitempty"`
-	Token                 string     `yaml:"token,omitempty"`
-	Username              string     `yaml:"username,omitempty"`
-	Password              string     `yaml:"password,omitempty"`
-	Exec                  *ExecConfig `yaml:"exec,omitempty"`
+	ClientCertificate     string              `yaml:"client-certificate,omitempty"`
+	ClientCertificateData string              `yaml:"client-certificate-data,omitempty"`
+	ClientKey             string              `yaml:"client-key,omitempty"`
+	ClientKeyData         string              `yaml:"client-key-data,omitempty"`
+	Token                 string              `yaml:"token,omitempty"`
+	Username              string              `yaml:"username,omitempty"`
+	Password              string              `yaml:"password,omitempty"`
+	Exec                  *ExecConfig         `yaml:"exec,omitempty"`
 	AuthProvider          *AuthProviderConfig `yaml:"auth-provider,omitempty"`
 }
 
 type ExecConfig struct {
-	APIVersion         string            `yaml:"apiVersion,omitempty"`
-	Command            string            `yaml:"command"`
-	Args               []string          `yaml:"args,omitempty"`
-	Env                []ExecEnvVar      `yaml:"env,omitempty"`
-	InstallHint        string            `yaml:"installHint,omitempty"`
-	ProvideClusterInfo bool              `yaml:"provideClusterInfo,omitempty"`
-	InteractiveMode    string            `yaml:"interactiveMode,omitempty"`
+	APIVersion         string       `yaml:"apiVersion,omitempty"`
+	Command            string       `yaml:"command"`
+	Args               []string     `yaml:"args,omitempty"`
+	Env                []ExecEnvVar `yaml:"env,omitempty"`
+	InstallHint        string       `yaml:"installHint,omitempty"`
+	ProvideClusterInfo bool         `yaml:"provideClusterInfo,omitempty"`
+	InteractiveMode    string       `yaml:"interactiveMode,omitempty"`
 }
 
 type ExecEnvVar struct {
