@@ -98,22 +98,26 @@ kubecfg list
 ### Switch Context
 
 Interactive mode:
+
 ```bash
 kubecfg use
 ```
 
 Direct switch:
+
 ```bash
 kubecfg use production-eks
 ```
 
 With interactive namespace selection:
+
 ```bash
 kubecfg use -n
 kubecfg use production-eks -n
 ```
 
 With specific namespace:
+
 ```bash
 kubecfg use production-eks -n kube-system
 ```
@@ -121,16 +125,19 @@ kubecfg use production-eks -n kube-system
 ### Switch Namespace
 
 Interactive mode:
+
 ```bash
 kubecfg ns
 ```
 
 Direct switch:
+
 ```bash
 kubecfg ns kube-system
 ```
 
 Show current namespace:
+
 ```bash
 kubecfg ns current
 ```
@@ -166,6 +173,21 @@ kubecfg merge config1.yaml config2.yaml -o merged.yaml
 |------|-------------|
 | `--kubeconfig` | Path to kubeconfig file (default: `~/.kube/config`) |
 | `-n, --namespace` | Set namespace for context (use without value for interactive selection) |
+
+## Development
+
+### Documentation
+
+- [Git Workflow Guide](docs/GIT_WORKFLOW.md) - Comprehensive Git workflow and release process
+- [Git Cheat Sheet](docs/GIT_CHEATSHEET.md) - Quick reference for common Git operations
+
+### Contributing
+
+1. Follow the [Git Workflow Guide](docs/GIT_WORKFLOW.md)
+2. Use [Conventional Commits](https://www.conventionalcommits.org/)
+3. Create feature branches: `feature/your-feature-name`
+4. Use `--no-ff` merge to main
+5. Follow [Semantic Versioning](https://semver.org/)
 
 ## License
 
