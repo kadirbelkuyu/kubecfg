@@ -2,9 +2,9 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-	"text/tabwriter"
+	"strings"
 
+	"github.com/kadirbelkuyu/kubecfg/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -21,25 +21,45 @@ var listCmd = &cobra.Command{
 		}
 
 		if len(contexts) == 0 {
-			printSuccess("No contexts found")
+			printInfo("No contexts found. Add a context with 'kubecfg add'")
 			return
 		}
 
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "CURRENT\tNAME\tCLUSTER\tSERVER\tNAMESPACE")
+		var output strings.Builder
+
+		output.WriteString(fmt.Sprintf("  %s  %-30s  %-25s  %-40s  %-20s\n",
+			ui.Header(""),
+			ui.Header("NAME"),
+			ui.Header("CLUSTER"),
+			ui.Header("SERVER"),
+			ui.Header("NAMESPACE")))
+
+		output.WriteString(fmt.Sprintf("  %s\n",
+			strings.Repeat("─", 120)))
 
 		for _, ctx := range contexts {
-			current := ""
+			current := "  "
+			nameStyle := ctx.Name
 			if ctx.Current {
-				current = "*"
+				current = ui.CurrentIndicator()
+				nameStyle = ui.ContextName(ctx.Name)
 			}
+
 			namespace := ctx.Namespace
 			if namespace == "" {
-				namespace = "-"
+				namespace = "default"
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", current, ctx.Name, ctx.Cluster, ctx.Server, namespace)
+
+			output.WriteString(fmt.Sprintf("  %s  %-30s  %-25s  %-40s  %-20s\n",
+				current,
+				nameStyle,
+				ui.Cluster(ctx.Cluster),
+				ui.Server(ctx.Server),
+				ui.Namespace(namespace)))
 		}
-		w.Flush()
+
+		fmt.Println(output.String())
+		fmt.Printf("\n%s\n", ui.Info(fmt.Sprintf("Total contexts: %d", len(contexts))))
 	},
 }
 

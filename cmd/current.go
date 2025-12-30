@@ -1,6 +1,10 @@
 package cmd
 
 import (
+	"fmt"
+	"strings"
+
+	"github.com/kadirbelkuyu/kubecfg/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -18,12 +22,33 @@ var currentCmd = &cobra.Command{
 
 		for _, ctx := range contexts {
 			if ctx.Current {
-				printSuccess(ctx.Name)
+				var output strings.Builder
+
+				output.WriteString(fmt.Sprintf("\n  %s %s\n\n",
+					ui.IconContext, ui.Header("CURRENT CONTEXT")))
+
+				output.WriteString(fmt.Sprintf("  %s %s\n",
+					ui.Label("Context:  "), ui.ContextName(ctx.Name)))
+
+				output.WriteString(fmt.Sprintf("  %s %s\n",
+					ui.Label("Cluster:  "), ui.Cluster(ctx.Cluster)))
+
+				ns := ctx.Namespace
+				if ns == "" {
+					ns = "default"
+				}
+				output.WriteString(fmt.Sprintf("  %s %s\n",
+					ui.Label("Namespace:"), ui.Namespace(ns)))
+
+				output.WriteString(fmt.Sprintf("  %s %s\n",
+					ui.Label("Server:   "), ui.Server(ctx.Server)))
+
+				fmt.Println(output.String())
 				return
 			}
 		}
 
-		printSuccess("No current context set")
+		printWarning("No current context set")
 	},
 }
 
