@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"fmt"
+
+	"github.com/kadirbelkuyu/kubecfg/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -24,7 +27,7 @@ var addCmd = &cobra.Command{
 			return
 		}
 
-		printSuccess("Context '" + addName + "' added successfully")
+		printSuccess(fmt.Sprintf("Context '%s' added successfully", ui.ContextName(addName)))
 	},
 }
 
