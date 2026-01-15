@@ -3,74 +3,55 @@ package tui
 import "github.com/charmbracelet/lipgloss"
 
 var (
-	primaryColor   = lipgloss.Color("#00D9FF")
+	primaryColor   = lipgloss.Color("#89B4FA")
 	secondaryColor = lipgloss.Color("#CBA6F7")
-	successColor   = lipgloss.Color("#00FF87")
-	errorColor     = lipgloss.Color("#FF5F87")
-	warningColor   = lipgloss.Color("#FFD700")
+	accentColor    = lipgloss.Color("#F9E2AF")
+	successColor   = lipgloss.Color("#A6E3A1")
+	errorColor     = lipgloss.Color("#F38BA8")
+	textColor      = lipgloss.Color("#CDD6F4")
 	subtleColor    = lipgloss.Color("#6C7086")
-	highlightColor = lipgloss.Color("#F9E2AF")
-	borderColor    = lipgloss.Color("#45475A")
-	bgColor        = lipgloss.Color("#1E1E2E")
+	dimColor       = lipgloss.Color("#45475A")
 )
 
 var (
-	TitleStyle = lipgloss.NewStyle().
+	AppNameStyle = lipgloss.NewStyle().
 			Foreground(primaryColor).
-			Bold(true).
-			MarginBottom(1)
+			Bold(true)
 
-	SubtitleStyle = lipgloss.NewStyle().
-			Foreground(subtleColor).
-			Italic(true)
+	LogoStyle = lipgloss.NewStyle().
+			Foreground(accentColor).
+			Bold(true)
 
-	MenuTitleStyle = lipgloss.NewStyle().
-			Foreground(secondaryColor).
-			Bold(true).
-			Padding(0, 1)
+	DescStyle = lipgloss.NewStyle().
+			Foreground(subtleColor)
 
 	SelectedItemStyle = lipgloss.NewStyle().
-				Foreground(highlightColor).
-				Bold(true).
-				PaddingLeft(2)
+				Foreground(accentColor).
+				Bold(true)
 
 	NormalItemStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#CDD6F4")).
-			PaddingLeft(4)
+			Foreground(textColor)
+
+	DimItemStyle = lipgloss.NewStyle().
+			Foreground(subtleColor)
 
 	CurrentMarkerStyle = lipgloss.NewStyle().
 				Foreground(successColor).
 				Bold(true)
 
-	HelpStyle = lipgloss.NewStyle().
-			Foreground(subtleColor).
-			MarginTop(1)
-
-	StatusBarStyle = lipgloss.NewStyle().
-			Foreground(primaryColor).
-			Background(lipgloss.Color("#313244")).
-			Padding(0, 1)
-
-	BoxStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(borderColor).
-			Padding(1, 2)
-
 	HeaderStyle = lipgloss.NewStyle().
 			Foreground(secondaryColor).
-			Bold(true).
-			Underline(true).
-			MarginBottom(1)
+			Bold(true)
 
 	ContextNameStyle = lipgloss.NewStyle().
 				Foreground(primaryColor).
 				Bold(true)
 
 	ClusterStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#A6E3A1"))
+			Foreground(successColor)
 
 	NamespaceStyle = lipgloss.NewStyle().
-			Foreground(highlightColor)
+			Foreground(accentColor)
 
 	ServerStyle = lipgloss.NewStyle().
 			Foreground(subtleColor)
@@ -82,15 +63,58 @@ var (
 	SuccessStyle = lipgloss.NewStyle().
 			Foreground(successColor).
 			Bold(true)
+
+	HelpKeyStyle = lipgloss.NewStyle().
+			Foreground(subtleColor)
+
+	HelpDescStyle = lipgloss.NewStyle().
+			Foreground(dimColor)
+
+	BorderStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(dimColor).
+			Padding(1, 2)
+
+	TitleBarStyle = lipgloss.NewStyle().
+			Foreground(primaryColor).
+			Bold(true).
+			Padding(0, 1).
+			MarginBottom(1)
+
+	StatusBarStyle = lipgloss.NewStyle().
+			Foreground(subtleColor).
+			MarginTop(1)
+
+	FilterInputStyle = lipgloss.NewStyle().
+				Foreground(accentColor).
+				Background(lipgloss.Color("#313244")).
+				Padding(0, 1)
 )
 
 const (
 	IconContext   = "⎈"
-	IconNamespace = "◉"
-	IconCluster   = "⚙"
-	IconServer    = "🌐"
-	IconCurrent   = "→"
+	IconNamespace = "⬡"
+	IconCluster   = "◆"
+	IconServer    = "●"
+	IconCurrent   = "❯"
 	IconCheck     = "✓"
 	IconCross     = "✗"
 	IconMenu      = "☰"
+	IconSwitch    = "⇄"
+	IconList      = "≡"
+	IconInfo      = "ℹ"
+	IconExit      = "⏻"
 )
+
+type MenuItem struct {
+	Icon  string
+	Label string
+}
+
+var MenuItems = []MenuItem{
+	{Icon: IconSwitch, Label: "Switch Context"},
+	{Icon: IconNamespace, Label: "Set Namespace"},
+	{Icon: IconList, Label: "List Contexts"},
+	{Icon: IconInfo, Label: "Current Info"},
+	{Icon: IconExit, Label: "Exit"},
+}
