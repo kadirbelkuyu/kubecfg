@@ -5,7 +5,9 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/kadirbelkuyu/kubecfg/internal/application"
 	"github.com/kadirbelkuyu/kubecfg/internal/config"
 	"github.com/kadirbelkuyu/kubecfg/internal/infrastructure"
@@ -22,34 +24,36 @@ const (
 type Model struct {
 	service         *application.Service
 	currentView     View
-	menuItems       []string
 	menuCursor      int
 	contexts        []application.ContextInfo
+	filteredCtx     []application.ContextInfo
 	contextCursor   int
 	namespaces      []string
+	filteredNs      []string
 	namespaceCursor int
 	width           int
 	height          int
 	statusMessage   string
 	errorMessage    string
 	quitting        bool
+	filterInput     textinput.Model
+	filtering       bool
 }
 
 func NewModel() Model {
 	repo := infrastructure.NewFileRepository()
 	service := application.NewService(repo)
 
+	ti := textinput.New()
+	ti.Placeholder = "type to filter..."
+	ti.CharLimit = 50
+	ti.Width = 30
+
 	return Model{
 		service:     service,
 		currentView: ViewMenu,
-		menuItems: []string{
-			"Switch Context",
-			"Set Namespace",
-			"List Contexts",
-			"Current Info",
-			"Exit",
-		},
-		menuCursor: 0,
+		menuCursor:  0,
+		filterInput: ti,
 	}
 }
 
@@ -65,6 +69,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		if m.filtering {
+			return m.updateFiltering(msg)
+		}
+
 		switch {
 		case key.Matches(msg, Keys.Quit):
 			m.quitting = true
@@ -74,8 +82,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.currentView != ViewMenu {
 				m.currentView = ViewMenu
 				m.statusMessage = ""
+				m.resetFilter()
 			}
 			return m, nil
+
+		case key.Matches(msg, Keys.Search):
+			if m.currentView != ViewMenu {
+				m.filtering = true
+				m.filterInput.Focus()
+				return m, textinput.Blink
+			}
 		}
 
 		switch m.currentView {
@@ -94,6 +110,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case contextsLoadedMsg:
 		m.contexts = msg.contexts
+		m.filteredCtx = msg.contexts
 		if msg.err != nil {
 			m.errorMessage = msg.err.Error()
 		}
@@ -101,6 +118,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case namespacesLoadedMsg:
 		m.namespaces = msg.namespaces
+		m.filteredNs = msg.namespaces
 		if msg.err != nil {
 			m.errorMessage = msg.err.Error()
 		}
@@ -118,6 +136,70 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *Model) resetFilter() {
+	m.filtering = false
+	m.filterInput.Reset()
+	m.filteredCtx = m.contexts
+	m.filteredNs = m.namespaces
+	m.contextCursor = 0
+	m.namespaceCursor = 0
+}
+
+func (m Model) updateFiltering(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		m.resetFilter()
+		return m, nil
+	case tea.KeyEnter:
+		m.filtering = false
+		m.filterInput.Blur()
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	m.filterInput, cmd = m.filterInput.Update(msg)
+
+	query := strings.ToLower(m.filterInput.Value())
+
+	if m.currentView == ViewContextList {
+		m.filteredCtx = filterContexts(m.contexts, query)
+		m.contextCursor = 0
+	} else if m.currentView == ViewNamespaceSelector {
+		m.filteredNs = filterStrings(m.namespaces, query)
+		m.namespaceCursor = 0
+	}
+
+	return m, cmd
+}
+
+func filterContexts(contexts []application.ContextInfo, query string) []application.ContextInfo {
+	if query == "" {
+		return contexts
+	}
+	var filtered []application.ContextInfo
+	for _, ctx := range contexts {
+		if strings.Contains(strings.ToLower(ctx.Name), query) ||
+			strings.Contains(strings.ToLower(ctx.Cluster), query) ||
+			strings.Contains(strings.ToLower(ctx.Namespace), query) {
+			filtered = append(filtered, ctx)
+		}
+	}
+	return filtered
+}
+
+func filterStrings(items []string, query string) []string {
+	if query == "" {
+		return items
+	}
+	var filtered []string
+	for _, item := range items {
+		if strings.Contains(strings.ToLower(item), query) {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
 func (m Model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, Keys.Up):
@@ -125,7 +207,7 @@ func (m Model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.menuCursor--
 		}
 	case key.Matches(msg, Keys.Down):
-		if m.menuCursor < len(m.menuItems)-1 {
+		if m.menuCursor < len(MenuItems)-1 {
 			m.menuCursor++
 		}
 	case key.Matches(msg, Keys.Select):
@@ -135,18 +217,21 @@ func (m Model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) selectMenuItem() (tea.Model, tea.Cmd) {
-	switch m.menuItems[m.menuCursor] {
+	switch MenuItems[m.menuCursor].Label {
 	case "Switch Context":
 		m.currentView = ViewContextList
 		m.contextCursor = 0
+		m.resetFilter()
 		return m, m.loadContexts
 	case "Set Namespace":
 		m.currentView = ViewNamespaceSelector
 		m.namespaceCursor = 0
+		m.resetFilter()
 		return m, m.loadNamespaces
 	case "List Contexts":
 		m.currentView = ViewContextList
 		m.contextCursor = 0
+		m.resetFilter()
 		return m, m.loadContexts
 	case "Current Info":
 		return m, m.showCurrentInfo
@@ -164,12 +249,23 @@ func (m Model) updateContextList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.contextCursor--
 		}
 	case key.Matches(msg, Keys.Down):
-		if m.contextCursor < len(m.contexts)-1 {
+		if m.contextCursor < len(m.filteredCtx)-1 {
 			m.contextCursor++
 		}
 	case key.Matches(msg, Keys.Select):
-		if len(m.contexts) > 0 {
-			return m, m.switchContext(m.contexts[m.contextCursor].Name)
+		if len(m.filteredCtx) > 0 {
+			return m, m.switchContext(m.filteredCtx[m.contextCursor].Name)
+		}
+	default:
+		if msg.Type == tea.KeyRunes {
+			m.filtering = true
+			m.filterInput.Focus()
+			m.filterInput.SetValue(string(msg.Runes))
+			m.filterInput.SetCursor(len(msg.Runes))
+			query := strings.ToLower(m.filterInput.Value())
+			m.filteredCtx = filterContexts(m.contexts, query)
+			m.contextCursor = 0
+			return m, textinput.Blink
 		}
 	}
 	return m, nil
@@ -182,12 +278,23 @@ func (m Model) updateNamespaceSelector(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.namespaceCursor--
 		}
 	case key.Matches(msg, Keys.Down):
-		if m.namespaceCursor < len(m.namespaces)-1 {
+		if m.namespaceCursor < len(m.filteredNs)-1 {
 			m.namespaceCursor++
 		}
 	case key.Matches(msg, Keys.Select):
-		if len(m.namespaces) > 0 {
-			return m, m.setNamespace(m.namespaces[m.namespaceCursor])
+		if len(m.filteredNs) > 0 {
+			return m, m.setNamespace(m.filteredNs[m.namespaceCursor])
+		}
+	default:
+		if msg.Type == tea.KeyRunes {
+			m.filtering = true
+			m.filterInput.Focus()
+			m.filterInput.SetValue(string(msg.Runes))
+			m.filterInput.SetCursor(len(msg.Runes))
+			query := strings.ToLower(m.filterInput.Value())
+			m.filteredNs = filterStrings(m.namespaces, query)
+			m.namespaceCursor = 0
+			return m, textinput.Blink
 		}
 	}
 	return m, nil
@@ -198,44 +305,93 @@ func (m Model) View() string {
 		return ""
 	}
 
-	var content string
+	var content strings.Builder
+
+	content.WriteString(m.renderHeader())
+	content.WriteString("\n")
 
 	switch m.currentView {
 	case ViewMenu:
-		content = m.viewMenu()
+		content.WriteString(m.viewMenu())
 	case ViewContextList:
-		content = m.viewContextList()
+		content.WriteString(m.viewContextList())
 	case ViewNamespaceSelector:
-		content = m.viewNamespaceSelector()
+		content.WriteString(m.viewNamespaceSelector())
 	}
 
 	if m.errorMessage != "" {
-		content += "\n\n" + ErrorStyle.Render(IconCross+" "+m.errorMessage)
+		content.WriteString("\n")
+		content.WriteString(ErrorStyle.Render(" " + IconCross + " " + m.errorMessage))
 	}
 
 	if m.statusMessage != "" {
-		content += "\n\n" + SuccessStyle.Render(IconCheck+" "+m.statusMessage)
+		content.WriteString("\n")
+		content.WriteString(SuccessStyle.Render(" " + IconCheck + " " + m.statusMessage))
 	}
 
-	content += "\n\n" + HelpStyle.Render("↑/k up • ↓/j down • enter select • esc back • q quit")
+	content.WriteString("\n\n")
+	content.WriteString(m.renderHelp())
 
-	return BoxStyle.Render(content)
+	mainContent := content.String()
+
+	if m.width > 0 && m.height > 0 {
+		return lipgloss.Place(
+			m.width,
+			m.height,
+			lipgloss.Center,
+			lipgloss.Center,
+			mainContent,
+		)
+	}
+
+	return mainContent
+}
+
+func (m Model) renderHeader() string {
+	logo := LogoStyle.Render("⎈")
+	name := AppNameStyle.Render("kubecfg")
+	desc := DescStyle.Render("Kubernetes Config Manager")
+
+	return fmt.Sprintf(" %s %s  %s", logo, name, desc)
+}
+
+func (m Model) renderHelp() string {
+	var parts []string
+
+	addKey := func(key, desc string) {
+		parts = append(parts, HelpKeyStyle.Render(key)+HelpDescStyle.Render(" "+desc))
+	}
+
+	addKey("↑↓", "navigate")
+	addKey("enter", "select")
+	if m.currentView != ViewMenu {
+		addKey("type", "filter")
+		addKey("esc", "back")
+	}
+	addKey("q", "quit")
+
+	return " " + strings.Join(parts, "  ")
 }
 
 func (m Model) viewMenu() string {
 	var b strings.Builder
 
-	title := TitleStyle.Render(IconMenu + " kubecfg")
-	subtitle := SubtitleStyle.Render("Kubernetes Config Manager")
-	b.WriteString(title + "\n" + subtitle + "\n\n")
+	b.WriteString("\n")
 
-	for i, item := range m.menuItems {
+	for i, item := range MenuItems {
+		var line string
+		icon := DimItemStyle.Render(item.Icon)
+
 		if i == m.menuCursor {
-			b.WriteString(SelectedItemStyle.Render(IconCurrent + " " + item))
+			cursor := SelectedItemStyle.Render(IconCurrent)
+			label := SelectedItemStyle.Render(item.Label)
+			line = fmt.Sprintf(" %s %s %s", cursor, icon, label)
 		} else {
-			b.WriteString(NormalItemStyle.Render(item))
+			label := NormalItemStyle.Render(item.Label)
+			line = fmt.Sprintf("   %s %s", icon, label)
 		}
-		b.WriteString("\n")
+
+		b.WriteString(line + "\n")
 	}
 
 	return b.String()
@@ -244,25 +400,54 @@ func (m Model) viewMenu() string {
 func (m Model) viewContextList() string {
 	var b strings.Builder
 
-	b.WriteString(HeaderStyle.Render(IconContext+" Contexts") + "\n\n")
+	title := HeaderStyle.Render(IconContext + " Contexts")
+	b.WriteString("\n " + title)
 
-	if len(m.contexts) == 0 {
-		b.WriteString(SubtitleStyle.Render("No contexts found"))
+	if m.filtering || m.filterInput.Value() != "" {
+		filterStyle := FilterInputStyle.Render(" " + m.filterInput.View())
+		b.WriteString("  " + filterStyle)
+	}
+
+	b.WriteString("\n\n")
+
+	if len(m.filteredCtx) == 0 {
+		if m.filterInput.Value() != "" {
+			b.WriteString(" " + DimItemStyle.Render("No matches for '"+m.filterInput.Value()+"'") + "\n")
+		} else {
+			b.WriteString(" " + DimItemStyle.Render("No contexts found") + "\n")
+		}
 		return b.String()
 	}
 
-	for i, ctx := range m.contexts {
+	maxVisible := 10
+	start := 0
+	if m.contextCursor >= maxVisible {
+		start = m.contextCursor - maxVisible + 1
+	}
+
+	end := start + maxVisible
+	if end > len(m.filteredCtx) {
+		end = len(m.filteredCtx)
+	}
+
+	for i := start; i < end; i++ {
+		ctx := m.filteredCtx[i]
 		line := m.formatContextLine(ctx)
+
 		if i == m.contextCursor {
-			b.WriteString(SelectedItemStyle.Render(IconCurrent + " " + line))
+			cursor := SelectedItemStyle.Render(IconCurrent)
+			b.WriteString(fmt.Sprintf(" %s %s\n", cursor, line))
+		} else if ctx.Current {
+			marker := CurrentMarkerStyle.Render(IconCheck)
+			b.WriteString(fmt.Sprintf(" %s %s\n", marker, line))
 		} else {
-			prefix := "  "
-			if ctx.Current {
-				prefix = CurrentMarkerStyle.Render(IconCheck + " ")
-			}
-			b.WriteString(NormalItemStyle.Render(prefix + line))
+			b.WriteString(fmt.Sprintf("   %s\n", line))
 		}
-		b.WriteString("\n")
+	}
+
+	if len(m.filteredCtx) > maxVisible {
+		info := DimItemStyle.Render(fmt.Sprintf(" [%d/%d]", m.contextCursor+1, len(m.filteredCtx)))
+		b.WriteString("\n" + info)
 	}
 
 	return b.String()
@@ -270,33 +455,66 @@ func (m Model) viewContextList() string {
 
 func (m Model) formatContextLine(ctx application.ContextInfo) string {
 	name := ContextNameStyle.Render(ctx.Name)
-	cluster := ClusterStyle.Render(ctx.Cluster)
+
 	ns := ctx.Namespace
 	if ns == "" {
 		ns = "default"
 	}
-	namespace := NamespaceStyle.Render(ns)
 
-	return fmt.Sprintf("%s (%s) [%s]", name, cluster, namespace)
+	details := DimItemStyle.Render(fmt.Sprintf("(%s)", ns))
+
+	return fmt.Sprintf("%s %s", name, details)
 }
 
 func (m Model) viewNamespaceSelector() string {
 	var b strings.Builder
 
-	b.WriteString(HeaderStyle.Render(IconNamespace+" Namespaces") + "\n\n")
+	title := HeaderStyle.Render(IconNamespace + " Namespaces")
+	b.WriteString("\n " + title)
 
-	if len(m.namespaces) == 0 {
-		b.WriteString(SubtitleStyle.Render("No namespaces found"))
+	if m.filtering || m.filterInput.Value() != "" {
+		filterStyle := FilterInputStyle.Render(" " + m.filterInput.View())
+		b.WriteString("  " + filterStyle)
+	}
+
+	b.WriteString("\n\n")
+
+	if len(m.filteredNs) == 0 {
+		if m.filterInput.Value() != "" {
+			b.WriteString(" " + DimItemStyle.Render("No matches for '"+m.filterInput.Value()+"'") + "\n")
+		} else {
+			b.WriteString(" " + DimItemStyle.Render("No namespaces found") + "\n")
+		}
 		return b.String()
 	}
 
-	for i, ns := range m.namespaces {
+	maxVisible := 10
+	start := 0
+	if m.namespaceCursor >= maxVisible {
+		start = m.namespaceCursor - maxVisible + 1
+	}
+
+	end := start + maxVisible
+	if end > len(m.filteredNs) {
+		end = len(m.filteredNs)
+	}
+
+	for i := start; i < end; i++ {
+		ns := m.filteredNs[i]
+
 		if i == m.namespaceCursor {
-			b.WriteString(SelectedItemStyle.Render(IconCurrent + " " + ns))
+			cursor := SelectedItemStyle.Render(IconCurrent)
+			label := SelectedItemStyle.Render(ns)
+			b.WriteString(fmt.Sprintf(" %s %s\n", cursor, label))
 		} else {
-			b.WriteString(NormalItemStyle.Render(ns))
+			label := NormalItemStyle.Render(ns)
+			b.WriteString(fmt.Sprintf("   %s\n", label))
 		}
-		b.WriteString("\n")
+	}
+
+	if len(m.filteredNs) > maxVisible {
+		info := DimItemStyle.Render(fmt.Sprintf(" [%d/%d]", m.namespaceCursor+1, len(m.filteredNs)))
+		b.WriteString("\n" + info)
 	}
 
 	return b.String()
@@ -334,7 +552,7 @@ func (m Model) switchContext(name string) tea.Cmd {
 		if err := m.service.UseContext(kubeconfigPath, name, ""); err != nil {
 			return errorMsg(err.Error())
 		}
-		return statusMsg(fmt.Sprintf("Switched to context '%s'", name))
+		return statusMsg(fmt.Sprintf("Switched to '%s'", name))
 	}
 }
 
@@ -344,7 +562,7 @@ func (m Model) setNamespace(namespace string) tea.Cmd {
 		if err := m.service.SetNamespace(kubeconfigPath, namespace); err != nil {
 			return errorMsg(err.Error())
 		}
-		return statusMsg(fmt.Sprintf("Namespace set to '%s'", namespace))
+		return statusMsg(fmt.Sprintf("Namespace: %s", namespace))
 	}
 }
 
@@ -361,12 +579,10 @@ func (m Model) showCurrentInfo() tea.Msg {
 			if ns == "" {
 				ns = "default"
 			}
-			info := fmt.Sprintf("Context: %s | Cluster: %s | Namespace: %s",
-				ctx.Name, ctx.Cluster, ns)
-			return statusMsg(info)
+			return statusMsg(fmt.Sprintf("%s → %s", ctx.Name, ns))
 		}
 	}
-	return errorMsg("No current context set")
+	return errorMsg("No current context")
 }
 
 func Run() error {
