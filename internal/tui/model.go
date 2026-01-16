@@ -19,6 +19,18 @@ const (
 	ViewMenu View = iota
 	ViewContextList
 	ViewNamespaceSelector
+	ViewAddContext
+	ViewRenameContext
+	ViewRemoveConfirm
+)
+
+type InputMode int
+
+const (
+	InputNone InputMode = iota
+	InputFilePath
+	InputContextName
+	InputNewName
 )
 
 type Model struct {
@@ -38,6 +50,9 @@ type Model struct {
 	quitting        bool
 	filterInput     textinput.Model
 	filtering       bool
+	inputMode       InputMode
+	textInput       textinput.Model
+	selectedContext string
 }
 
 func NewModel() Model {
@@ -49,11 +64,16 @@ func NewModel() Model {
 	ti.CharLimit = 50
 	ti.Width = 30
 
+	input := textinput.New()
+	input.CharLimit = 100
+	input.Width = 40
+
 	return Model{
 		service:     service,
 		currentView: ViewMenu,
 		menuCursor:  0,
 		filterInput: ti,
+		textInput:   input,
 	}
 }
 
@@ -67,6 +87,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.errorMessage != "" && msg.String() != "q" && msg.String() != "ctrl+c" {
 			m.errorMessage = ""
 			return m, nil
+		}
+
+		if m.inputMode != InputNone {
+			return m.updateTextInput(msg)
 		}
 
 		if m.filtering {
@@ -83,11 +107,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.currentView = ViewMenu
 				m.statusMessage = ""
 				m.resetFilter()
+				m.inputMode = InputNone
 			}
 			return m, nil
 
 		case key.Matches(msg, Keys.Search):
-			if m.currentView != ViewMenu {
+			if m.currentView == ViewContextList || m.currentView == ViewNamespaceSelector {
 				m.filtering = true
 				m.filterInput.Focus()
 				return m, textinput.Blink
@@ -101,6 +126,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateContextList(msg)
 		case ViewNamespaceSelector:
 			return m.updateNamespaceSelector(msg)
+		case ViewRemoveConfirm:
+			return m.updateRemoveConfirm(msg)
 		}
 
 	case tea.WindowSizeMsg:
@@ -131,6 +158,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case errorMsg:
 		m.errorMessage = string(msg)
 		return m, nil
+
+	case contextAddedMsg:
+		if msg.err != nil {
+			m.errorMessage = msg.err.Error()
+		} else {
+			m.statusMessage = fmt.Sprintf("Added context '%s'", msg.name)
+			m.currentView = ViewMenu
+			m.inputMode = InputNone
+		}
+		return m, m.loadContexts
+
+	case contextRenamedMsg:
+		if msg.err != nil {
+			m.errorMessage = msg.err.Error()
+		} else {
+			m.statusMessage = fmt.Sprintf("Renamed to '%s'", msg.newName)
+			m.currentView = ViewMenu
+			m.inputMode = InputNone
+		}
+		return m, m.loadContexts
+
+	case contextRemovedMsg:
+		if msg.err != nil {
+			m.errorMessage = msg.err.Error()
+		} else {
+			m.statusMessage = fmt.Sprintf("Removed context '%s'", msg.name)
+			m.currentView = ViewMenu
+		}
+		return m, m.loadContexts
 	}
 
 	return m, nil
@@ -143,6 +199,40 @@ func (m *Model) resetFilter() {
 	m.filteredNs = m.namespaces
 	m.contextCursor = 0
 	m.namespaceCursor = 0
+}
+
+func (m Model) updateTextInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		m.inputMode = InputNone
+		m.currentView = ViewMenu
+		m.textInput.Reset()
+		return m, nil
+	case tea.KeyEnter:
+		value := m.textInput.Value()
+		if value == "" {
+			return m, nil
+		}
+
+		switch m.inputMode {
+		case InputFilePath:
+			m.inputMode = InputContextName
+			m.textInput.Reset()
+			m.textInput.Placeholder = "context name..."
+			m.textInput.Focus()
+			m.selectedContext = value
+			return m, textinput.Blink
+		case InputContextName:
+			return m, m.addContext(m.selectedContext, value)
+		case InputNewName:
+			return m, m.renameContext(m.selectedContext, value)
+		}
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	m.textInput, cmd = m.textInput.Update(msg)
+	return m, cmd
 }
 
 func (m Model) updateFiltering(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -233,6 +323,23 @@ func (m Model) selectMenuItem() (tea.Model, tea.Cmd) {
 		m.contextCursor = 0
 		m.resetFilter()
 		return m, m.loadContexts
+	case "Add Context":
+		m.currentView = ViewAddContext
+		m.inputMode = InputFilePath
+		m.textInput.Reset()
+		m.textInput.Placeholder = "path to kubeconfig file..."
+		m.textInput.Focus()
+		return m, textinput.Blink
+	case "Rename Context":
+		m.currentView = ViewContextList
+		m.contextCursor = 0
+		m.resetFilter()
+		return m, m.loadContexts
+	case "Remove Context":
+		m.currentView = ViewContextList
+		m.contextCursor = 0
+		m.resetFilter()
+		return m, m.loadContexts
 	case "Current Info":
 		return m, m.showCurrentInfo
 	case "Exit":
@@ -243,6 +350,8 @@ func (m Model) selectMenuItem() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateContextList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	menuLabel := MenuItems[m.menuCursor].Label
+
 	switch {
 	case key.Matches(msg, Keys.Up):
 		if m.contextCursor > 0 {
@@ -254,10 +363,45 @@ func (m Model) updateContextList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case key.Matches(msg, Keys.Select):
 		if len(m.filteredCtx) > 0 {
-			return m, m.switchContext(m.filteredCtx[m.contextCursor].Name)
+			ctx := m.filteredCtx[m.contextCursor]
+			switch menuLabel {
+			case "Rename Context":
+				m.currentView = ViewRenameContext
+				m.inputMode = InputNewName
+				m.selectedContext = ctx.Name
+				m.textInput.Reset()
+				m.textInput.Placeholder = "new name..."
+				m.textInput.SetValue(ctx.Name)
+				m.textInput.Focus()
+				return m, textinput.Blink
+			case "Remove Context":
+				m.currentView = ViewRemoveConfirm
+				m.selectedContext = ctx.Name
+				return m, nil
+			default:
+				return m, m.switchContext(ctx.Name)
+			}
 		}
 	default:
-		if msg.Type == tea.KeyRunes {
+		if len(m.filteredCtx) > 0 {
+			ctx := m.filteredCtx[m.contextCursor]
+			switch msg.String() {
+			case "r", "R":
+				m.currentView = ViewRenameContext
+				m.inputMode = InputNewName
+				m.selectedContext = ctx.Name
+				m.textInput.Reset()
+				m.textInput.Placeholder = "new name..."
+				m.textInput.SetValue(ctx.Name)
+				m.textInput.Focus()
+				return m, textinput.Blink
+			case "d", "D", "x", "X":
+				m.currentView = ViewRemoveConfirm
+				m.selectedContext = ctx.Name
+				return m, nil
+			}
+		}
+		if msg.Type == tea.KeyRunes && msg.String() != "r" && msg.String() != "R" && msg.String() != "d" && msg.String() != "D" && msg.String() != "x" && msg.String() != "X" {
 			m.filtering = true
 			m.filterInput.Focus()
 			m.filterInput.SetValue(string(msg.Runes))
@@ -267,6 +411,18 @@ func (m Model) updateContextList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.contextCursor = 0
 			return m, textinput.Blink
 		}
+	}
+	return m, nil
+}
+
+func (m Model) updateRemoveConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "y", "Y":
+		return m, m.removeContext(m.selectedContext)
+	case "n", "N", "esc":
+		m.currentView = ViewMenu
+		m.selectedContext = ""
+		return m, nil
 	}
 	return m, nil
 }
@@ -317,6 +473,12 @@ func (m Model) View() string {
 		content.WriteString(m.viewContextList())
 	case ViewNamespaceSelector:
 		content.WriteString(m.viewNamespaceSelector())
+	case ViewAddContext:
+		content.WriteString(m.viewAddContext())
+	case ViewRenameContext:
+		content.WriteString(m.viewRenameContext())
+	case ViewRemoveConfirm:
+		content.WriteString(m.viewRemoveConfirm())
 	}
 
 	if m.errorMessage != "" {
@@ -363,11 +525,28 @@ func (m Model) renderHelp() string {
 	}
 
 	addKey("↑↓", "navigate")
-	addKey("enter", "select")
-	if m.currentView != ViewMenu {
+
+	switch m.currentView {
+	case ViewMenu:
+		addKey("enter", "select")
+	case ViewContextList:
+		addKey("enter", "select")
+		addKey("r", "rename")
+		addKey("d", "delete")
 		addKey("type", "filter")
 		addKey("esc", "back")
+	case ViewNamespaceSelector:
+		addKey("enter", "select")
+		addKey("type", "filter")
+		addKey("esc", "back")
+	case ViewAddContext, ViewRenameContext:
+		addKey("enter", "confirm")
+		addKey("esc", "cancel")
+	case ViewRemoveConfirm:
+		addKey("y/n", "confirm")
+		addKey("esc", "cancel")
 	}
+
 	addKey("q", "quit")
 
 	return " " + strings.Join(parts, "  ")
@@ -400,7 +579,17 @@ func (m Model) viewMenu() string {
 func (m Model) viewContextList() string {
 	var b strings.Builder
 
-	title := HeaderStyle.Render(IconContext + " Contexts")
+	menuLabel := MenuItems[m.menuCursor].Label
+	var title string
+	switch menuLabel {
+	case "Rename Context":
+		title = HeaderStyle.Render(IconRename + " Select context to rename")
+	case "Remove Context":
+		title = HeaderStyle.Render(IconRemove + " Select context to remove")
+	default:
+		title = HeaderStyle.Render(IconContext + " Contexts")
+	}
+
 	b.WriteString("\n " + title)
 
 	if m.filtering || m.filterInput.Value() != "" {
@@ -520,6 +709,50 @@ func (m Model) viewNamespaceSelector() string {
 	return b.String()
 }
 
+func (m Model) viewAddContext() string {
+	var b strings.Builder
+
+	title := HeaderStyle.Render(IconAdd + " Add Context")
+	b.WriteString("\n " + title + "\n\n")
+
+	if m.inputMode == InputFilePath {
+		b.WriteString(" " + DimItemStyle.Render("Kubeconfig file path:") + "\n")
+		b.WriteString(" " + m.textInput.View() + "\n")
+	} else if m.inputMode == InputContextName {
+		b.WriteString(" " + DimItemStyle.Render("File: "+m.selectedContext) + "\n\n")
+		b.WriteString(" " + DimItemStyle.Render("Context name:") + "\n")
+		b.WriteString(" " + m.textInput.View() + "\n")
+	}
+
+	return b.String()
+}
+
+func (m Model) viewRenameContext() string {
+	var b strings.Builder
+
+	title := HeaderStyle.Render(IconRename + " Rename Context")
+	b.WriteString("\n " + title + "\n\n")
+
+	b.WriteString(" " + DimItemStyle.Render("Current: "+m.selectedContext) + "\n\n")
+	b.WriteString(" " + DimItemStyle.Render("New name:") + "\n")
+	b.WriteString(" " + m.textInput.View() + "\n")
+
+	return b.String()
+}
+
+func (m Model) viewRemoveConfirm() string {
+	var b strings.Builder
+
+	title := HeaderStyle.Render(IconRemove + " Remove Context")
+	b.WriteString("\n " + title + "\n\n")
+
+	b.WriteString(" " + ErrorStyle.Render("Are you sure you want to remove?") + "\n\n")
+	b.WriteString(" " + ContextNameStyle.Render(m.selectedContext) + "\n\n")
+	b.WriteString(" " + DimItemStyle.Render("Press [y] to confirm, [n] or [esc] to cancel") + "\n")
+
+	return b.String()
+}
+
 type contextsLoadedMsg struct {
 	contexts []application.ContextInfo
 	err      error
@@ -532,6 +765,22 @@ type namespacesLoadedMsg struct {
 
 type statusMsg string
 type errorMsg string
+
+type contextAddedMsg struct {
+	name string
+	err  error
+}
+
+type contextRenamedMsg struct {
+	oldName string
+	newName string
+	err     error
+}
+
+type contextRemovedMsg struct {
+	name string
+	err  error
+}
 
 func (m Model) loadContexts() tea.Msg {
 	kubeconfigPath := config.GetKubeconfigPath()
@@ -563,6 +812,36 @@ func (m Model) setNamespace(namespace string) tea.Cmd {
 			return errorMsg(err.Error())
 		}
 		return statusMsg(fmt.Sprintf("Namespace: %s", namespace))
+	}
+}
+
+func (m Model) addContext(sourcePath, contextName string) tea.Cmd {
+	return func() tea.Msg {
+		kubeconfigPath := config.GetKubeconfigPath()
+		if err := m.service.AddConfig(sourcePath, kubeconfigPath, contextName); err != nil {
+			return contextAddedMsg{name: contextName, err: err}
+		}
+		return contextAddedMsg{name: contextName, err: nil}
+	}
+}
+
+func (m Model) renameContext(oldName, newName string) tea.Cmd {
+	return func() tea.Msg {
+		kubeconfigPath := config.GetKubeconfigPath()
+		if err := m.service.RenameContext(kubeconfigPath, oldName, newName); err != nil {
+			return contextRenamedMsg{oldName: oldName, newName: newName, err: err}
+		}
+		return contextRenamedMsg{oldName: oldName, newName: newName, err: nil}
+	}
+}
+
+func (m Model) removeContext(name string) tea.Cmd {
+	return func() tea.Msg {
+		kubeconfigPath := config.GetKubeconfigPath()
+		if err := m.service.RemoveContext(kubeconfigPath, name); err != nil {
+			return contextRemovedMsg{name: name, err: err}
+		}
+		return contextRemovedMsg{name: name, err: nil}
 	}
 }
 
