@@ -104,6 +104,9 @@ const (
 	IconList      = "≡"
 	IconInfo      = "ℹ"
 	IconExit      = "⏻"
+	IconAdd       = "+"
+	IconRename    = "✎"
+	IconRemove    = "−"
 )
 
 type MenuItem struct {
@@ -115,6 +118,9 @@ var MenuItems = []MenuItem{
 	{Icon: IconSwitch, Label: "Switch Context"},
 	{Icon: IconNamespace, Label: "Set Namespace"},
 	{Icon: IconList, Label: "List Contexts"},
+	{Icon: IconAdd, Label: "Add Context"},
+	{Icon: IconRename, Label: "Rename Context"},
+	{Icon: IconRemove, Label: "Remove Context"},
 	{Icon: IconInfo, Label: "Current Info"},
 	{Icon: IconExit, Label: "Exit"},
 }
