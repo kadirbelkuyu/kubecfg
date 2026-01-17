@@ -14,7 +14,7 @@ var (
 
 func Init() {
 	v = viper.New()
-	v.SetEnvPrefix("KUBECFG")
+	v.SetEnvPrefix("kubecfg")
 	v.AutomaticEnv()
 
 	v.SetDefault("kubeconfig", getDefaultKubeconfigPath())

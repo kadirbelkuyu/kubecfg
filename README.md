@@ -1,22 +1,25 @@
 # kubecfg
 
+[![CI](https://github.com/kadirbelkuyu/kubecfg/actions/workflows/ci.yml/badge.svg)](https://github.com/kadirbelkuyu/kubecfg/actions/workflows/ci.yml)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/kadirbelkuyu/kubecfg)](https://github.com/kadirbelkuyu/kubecfg)
+[![License](https://img.shields.io/github/license/kadirbelkuyu/kubecfg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/kadirbelkuyu/kubecfg)](https://github.com/kadirbelkuyu/kubecfg/releases)
+
 A CLI tool for managing Kubernetes kubeconfig files.
 
-![kubecfg demo](img/kubecfg.gif)
+- **Fast context switching** – Interactive TUI or direct commands, no more `kubectl config use-context`
+- **Namespace management** – Switch namespaces without remembering long `kubectl` flags
+- **Multi-config merge** – Combine kubeconfig files from different clusters into one
 
-## Installation (Coming soon for package managers)
+![kubecfg TUI](img/kubecfg.png)
+
+## Installation
 
 ### Homebrew
 
 ```bash
 brew tap kadirbelkuyu/tap
 brew install kadirbelkuyu/tap/kubecfg
-```
-
-### Krew
-
-```bash
-kubectl krew install kubecfg
 ```
 
 ### Go
@@ -55,6 +58,12 @@ sudo port install kubecfg
 choco install kubecfg
 ```
 
+### Krew
+
+```bash
+kubectl krew install kubecfg
+```
+
 ### Winget (Windows)
 
 ```powershell
@@ -71,6 +80,26 @@ sudo apt update && sudo apt install kubecfg
 
 </details>
 
+## Quickstart
+
+Switch context interactively:
+
+```bash
+kubecfg use
+```
+
+Set namespace for current context:
+
+```bash
+kubecfg ns kube-system
+```
+
+Show current context info:
+
+```bash
+kubecfg current
+```
+
 ## Features
 
 - **Add** - Import kubeconfig files with custom context names
@@ -81,7 +110,45 @@ sudo apt update && sudo apt install kubecfg
 - **Rename** - Change context names
 - **Merge** - Combine multiple kubeconfig files
 
+## TUI Keys
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` / `k` / `j` | Navigate list |
+| `Enter` | Select item |
+| `/` | Start filtering |
+| `Esc` | Cancel / Go back |
+| `q` | Quit |
+
+## Project Structure
+
+```
+kubecfg/
+├── cmd/                    # CLI commands (Cobra)
+│   ├── root.go             # Root command and global flags
+│   ├── add.go              # Add kubeconfig
+│   ├── use.go              # Switch context
+│   ├── ns.go               # Namespace management
+│   ├── list.go             # List contexts
+│   ├── remove.go           # Remove context
+│   ├── rename.go           # Rename context
+│   ├── merge.go            # Merge configs
+│   └── current.go          # Show current context
+├── internal/
+│   ├── application/        # Business logic (Service layer)
+│   ├── domain/             # Domain models (KubeConfig, Context, Cluster)
+│   ├── infrastructure/     # Repository implementations
+│   ├── tui/                # Terminal UI (Bubble Tea)
+│   ├── ui/                 # Prompt UI components
+│   └── config/             # Configuration management
+└── main.go                 # Entry point
+```
+
+**Architecture**: Clean Architecture with separation of concerns. Domain layer defines kubeconfig models, Application layer handles business logic, Infrastructure layer manages file I/O, and TUI/CLI layers provide user interfaces.
+
 ## Usage
+
+![kubecfg demo](img/kubecfg2.gif)
 
 ### Add a Cluster
 
