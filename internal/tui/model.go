@@ -187,6 +187,75 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.currentView = ViewMenu
 		}
 		return m, m.loadContexts
+
+	case tea.MouseMsg:
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			switch m.currentView {
+			case ViewMenu:
+				return m.selectMenuItem()
+			case ViewContextList:
+				if len(m.filteredCtx) > 0 {
+					menuLabel := MenuItems[m.menuCursor].Label
+					ctx := m.filteredCtx[m.contextCursor]
+					switch menuLabel {
+					case "Rename Context":
+						m.currentView = ViewRenameContext
+						m.inputMode = InputNewName
+						m.selectedContext = ctx.Name
+						m.textInput.Reset()
+						m.textInput.Placeholder = "new name..."
+						m.textInput.SetValue(ctx.Name)
+						m.textInput.Focus()
+						return m, textinput.Blink
+					case "Remove Context":
+						m.currentView = ViewRemoveConfirm
+						m.selectedContext = ctx.Name
+						return m, nil
+					default:
+						return m, m.switchContext(ctx.Name)
+					}
+				}
+			case ViewNamespaceSelector:
+				if len(m.filteredNs) > 0 {
+					return m, m.setNamespace(m.filteredNs[m.namespaceCursor])
+				}
+			}
+		}
+		if msg.Button == tea.MouseButtonWheelUp {
+			switch m.currentView {
+			case ViewMenu:
+				if m.menuCursor > 0 {
+					m.menuCursor--
+				}
+			case ViewContextList:
+				if m.contextCursor > 0 {
+					m.contextCursor--
+				}
+			case ViewNamespaceSelector:
+				if m.namespaceCursor > 0 {
+					m.namespaceCursor--
+				}
+			}
+			return m, nil
+		}
+		if msg.Button == tea.MouseButtonWheelDown {
+			switch m.currentView {
+			case ViewMenu:
+				if m.menuCursor < len(MenuItems)-1 {
+					m.menuCursor++
+				}
+			case ViewContextList:
+				if m.contextCursor < len(m.filteredCtx)-1 {
+					m.contextCursor++
+				}
+			case ViewNamespaceSelector:
+				if m.namespaceCursor < len(m.filteredNs)-1 {
+					m.namespaceCursor++
+				}
+			}
+			return m, nil
+		}
+		return m, nil
 	}
 
 	return m, nil
@@ -243,6 +312,20 @@ func (m Model) updateFiltering(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEnter:
 		m.filtering = false
 		m.filterInput.Blur()
+		return m, nil
+	case tea.KeyUp:
+		if m.currentView == ViewContextList && m.contextCursor > 0 {
+			m.contextCursor--
+		} else if m.currentView == ViewNamespaceSelector && m.namespaceCursor > 0 {
+			m.namespaceCursor--
+		}
+		return m, nil
+	case tea.KeyDown:
+		if m.currentView == ViewContextList && m.contextCursor < len(m.filteredCtx)-1 {
+			m.contextCursor++
+		} else if m.currentView == ViewNamespaceSelector && m.namespaceCursor < len(m.filteredNs)-1 {
+			m.namespaceCursor++
+		}
 		return m, nil
 	}
 
@@ -318,11 +401,6 @@ func (m Model) selectMenuItem() (tea.Model, tea.Cmd) {
 		m.namespaceCursor = 0
 		m.resetFilter()
 		return m, m.loadNamespaces
-	case "List Contexts":
-		m.currentView = ViewContextList
-		m.contextCursor = 0
-		m.resetFilter()
-		return m, m.loadContexts
 	case "Add Context":
 		m.currentView = ViewAddContext
 		m.inputMode = InputFilePath
@@ -386,7 +464,7 @@ func (m Model) updateContextList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.filteredCtx) > 0 {
 			ctx := m.filteredCtx[m.contextCursor]
 			switch msg.String() {
-			case "r", "R":
+			case "ctrl+r":
 				m.currentView = ViewRenameContext
 				m.inputMode = InputNewName
 				m.selectedContext = ctx.Name
@@ -395,13 +473,13 @@ func (m Model) updateContextList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.textInput.SetValue(ctx.Name)
 				m.textInput.Focus()
 				return m, textinput.Blink
-			case "d", "D", "x", "X":
+			case "ctrl+d":
 				m.currentView = ViewRemoveConfirm
 				m.selectedContext = ctx.Name
 				return m, nil
 			}
 		}
-		if msg.Type == tea.KeyRunes && msg.String() != "r" && msg.String() != "R" && msg.String() != "d" && msg.String() != "D" && msg.String() != "x" && msg.String() != "X" {
+		if msg.Type == tea.KeyRunes {
 			m.filtering = true
 			m.filterInput.Focus()
 			m.filterInput.SetValue(string(msg.Runes))
@@ -510,11 +588,26 @@ func (m Model) View() string {
 }
 
 func (m Model) renderHeader() string {
-	logo := LogoStyle.Render("⎈")
-	name := AppNameStyle.Render("kubecfg")
-	desc := DescStyle.Render("Kubernetes Config Manager")
+	lines := []string{
+		"██╗  ██╗██╗   ██╗██████╗ ███████╗ ██████╗███████╗ ██████╗ ",
+		"██║ ██╔╝██║   ██║██╔══██╗██╔════╝██╔════╝██╔════╝██╔════╝ ",
+		"█████╔╝ ██║   ██║██████╔╝█████╗  ██║     █████╗  ██║  ███╗",
+		"██╔═██╗ ██║   ██║██╔══██╗██╔══╝  ██║     ██╔══╝  ██║   ██║",
+		"██║  ██╗╚██████╔╝██████╔╝███████╗╚██████╗██║     ╚██████╔╝",
+		"╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚══════╝ ╚═════╝╚═╝      ╚═════╝ ",
+	}
 
-	return fmt.Sprintf(" %s %s  %s", logo, name, desc)
+	gradientColors := []lipgloss.Color{
+		"#FFFFFF", "#DDDDDD", "#BBBBBB", "#999999", "#777777", "#555555",
+	}
+
+	var renderedLines []string
+	for i, line := range lines {
+		style := lipgloss.NewStyle().Foreground(gradientColors[i]).Bold(true)
+		renderedLines = append(renderedLines, style.Render(line))
+	}
+
+	return strings.Join(renderedLines, "\n")
 }
 
 func (m Model) renderHelp() string {
@@ -531,8 +624,8 @@ func (m Model) renderHelp() string {
 		addKey("enter", "select")
 	case ViewContextList:
 		addKey("enter", "select")
-		addKey("r", "rename")
-		addKey("d", "delete")
+		addKey("ctrl+r", "rename")
+		addKey("ctrl+d", "delete")
 		addKey("type", "filter")
 		addKey("esc", "back")
 	case ViewNamespaceSelector:
@@ -866,7 +959,7 @@ func (m Model) showCurrentInfo() tea.Msg {
 
 func Run() error {
 	config.Init()
-	p := tea.NewProgram(NewModel(), tea.WithAltScreen())
+	p := tea.NewProgram(NewModel(), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := p.Run()
 	return err
 }
@@ -874,7 +967,7 @@ func Run() error {
 func RunWithConfig(kubeconfigPath string) error {
 	config.Init()
 	config.SetKubeconfigPath(kubeconfigPath)
-	p := tea.NewProgram(NewModel(), tea.WithAltScreen())
+	p := tea.NewProgram(NewModel(), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := p.Run()
 	return err
 }
