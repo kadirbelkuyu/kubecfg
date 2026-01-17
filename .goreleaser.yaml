@@ -27,26 +27,28 @@ builds:
 
 archives:
   - id: default
-    format: tar.gz
+    formats:
+      - tar.gz
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
-        format: zip
+        formats:
+          - zip
     files:
       - README.md
       - LICENSE
 
 checksum:
-  name_template: 'checksums.txt'
+  name_template: "checksums.txt"
   algorithm: sha256
 
 changelog:
   sort: asc
   filters:
     exclude:
-      - '^docs:'
-      - '^test:'
-      - '^chore:'
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
 
 brews:
   - name: kubecfg
@@ -64,46 +66,3 @@ brews:
       bin.install "kubecfg"
     test: |
       system "#{bin}/kubecfg", "--help"
-
-# krews:
-#   - name: kubecfg
-#     repository:
-#       owner: kadirbelkuyu
-#       name: krew-index
-#     commit_author:
-#       name: goreleaserbot
-#       email: bot@goreleaser.com
-#     homepage: "https://github.com/kadirbelkuyu/kubecfg"
-#     short_description: "Manage kubeconfig files easily"
-#     description: |
-#       A fast, secure CLI tool for managing Kubernetes kubeconfig files.
-#       Built for DevOps engineers and platform teams who work with multiple clusters daily.
-
-# scoops:
-#   - name: kubecfg
-#     repository:
-#       owner: kadirbelkuyu
-#       name: scoop-bucket
-#     commit_author:
-#       name: goreleaserbot
-#       email: bot@goreleaser.com
-#     homepage: "https://github.com/kadirbelkuyu/kubecfg"
-#     description: "A fast, secure CLI tool for managing Kubernetes kubeconfig files"
-#     license: MIT
-
-# winget:
-#   - name: kubecfg
-#     publisher: kadirbelkuyu
-#     license: MIT
-#     homepage: "https://github.com/kadirbelkuyu/kubecfg"
-#     short_description: "A fast, secure CLI tool for managing Kubernetes kubeconfig files"
-#     repository:
-#       owner: kadirbelkuyu
-#       name: winget-pkgs
-#       branch: kubecfg-{{.Version}}
-#       pull_request:
-#         enabled: true
-#         base:
-#           owner: microsoft
-#           name: winget-pkgs
-#           branch: master
