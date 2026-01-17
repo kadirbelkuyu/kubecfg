@@ -11,6 +11,8 @@ var (
 	textColor      = lipgloss.Color("#CDD6F4")
 	subtleColor    = lipgloss.Color("#6C7086")
 	dimColor       = lipgloss.Color("#45475A")
+	cyanColor      = lipgloss.Color("#4ECDC4")
+	cyanDarkColor  = lipgloss.Color("#2EC4B6")
 )
 
 var (
@@ -19,7 +21,7 @@ var (
 			Bold(true)
 
 	LogoStyle = lipgloss.NewStyle().
-			Foreground(accentColor).
+			Foreground(lipgloss.Color("#00D9C0")).
 			Bold(true)
 
 	DescStyle = lipgloss.NewStyle().
@@ -117,7 +119,6 @@ type MenuItem struct {
 var MenuItems = []MenuItem{
 	{Icon: IconSwitch, Label: "Switch Context"},
 	{Icon: IconNamespace, Label: "Set Namespace"},
-	{Icon: IconList, Label: "List Contexts"},
 	{Icon: IconAdd, Label: "Add Context"},
 	{Icon: IconRename, Label: "Rename Context"},
 	{Icon: IconRemove, Label: "Remove Context"},
