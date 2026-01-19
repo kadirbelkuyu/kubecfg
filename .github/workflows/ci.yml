@@ -68,7 +68,7 @@ jobs:
           go build -v -ldflags="-s -w" -o kubecfg-${{ matrix.goos }}-${{ matrix.goarch }} .
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: kubecfg-${{ matrix.goos }}-${{ matrix.goarch }}
           path: kubecfg-${{ matrix.goos }}-${{ matrix.goarch }}*
