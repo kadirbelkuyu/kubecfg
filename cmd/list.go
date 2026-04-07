@@ -27,15 +27,15 @@ var listCmd = &cobra.Command{
 
 		var output strings.Builder
 
-		output.WriteString(fmt.Sprintf("  %s  %-30s  %-25s  %-40s  %-20s\n",
+		_, _ = fmt.Fprintf(&output, "  %s  %-30s  %-25s  %-40s  %-20s\n",
 			ui.Header(""),
 			ui.Header("NAME"),
 			ui.Header("CLUSTER"),
 			ui.Header("SERVER"),
-			ui.Header("NAMESPACE")))
+			ui.Header("NAMESPACE"))
 
-		output.WriteString(fmt.Sprintf("  %s\n",
-			strings.Repeat("─", 120)))
+		_, _ = fmt.Fprintf(&output, "  %s\n",
+			strings.Repeat("─", 120))
 
 		for _, ctx := range contexts {
 			current := "  "
@@ -50,12 +50,12 @@ var listCmd = &cobra.Command{
 				namespace = "default"
 			}
 
-			output.WriteString(fmt.Sprintf("  %s  %-30s  %-25s  %-40s  %-20s\n",
+			_, _ = fmt.Fprintf(&output, "  %s  %-30s  %-25s  %-40s  %-20s\n",
 				current,
 				nameStyle,
 				ui.Cluster(ctx.Cluster),
 				ui.Server(ctx.Server),
-				ui.Namespace(namespace)))
+				ui.Namespace(namespace))
 		}
 
 		fmt.Println(output.String())

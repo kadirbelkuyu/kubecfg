@@ -719,12 +719,12 @@ func (m Model) viewContextList() string {
 
 		if i == m.contextCursor {
 			cursor := SelectedItemStyle.Render(IconCurrent)
-			b.WriteString(fmt.Sprintf(" %s %s\n", cursor, line))
+			_, _ = fmt.Fprintf(&b, " %s %s\n", cursor, line)
 		} else if ctx.Current {
 			marker := CurrentMarkerStyle.Render(IconCheck)
-			b.WriteString(fmt.Sprintf(" %s %s\n", marker, line))
+			_, _ = fmt.Fprintf(&b, " %s %s\n", marker, line)
 		} else {
-			b.WriteString(fmt.Sprintf("   %s\n", line))
+			_, _ = fmt.Fprintf(&b, "   %s\n", line)
 		}
 	}
 
@@ -788,10 +788,10 @@ func (m Model) viewNamespaceSelector() string {
 		if i == m.namespaceCursor {
 			cursor := SelectedItemStyle.Render(IconCurrent)
 			label := SelectedItemStyle.Render(ns)
-			b.WriteString(fmt.Sprintf(" %s %s\n", cursor, label))
+			_, _ = fmt.Fprintf(&b, " %s %s\n", cursor, label)
 		} else {
 			label := NormalItemStyle.Render(ns)
-			b.WriteString(fmt.Sprintf("   %s\n", label))
+			_, _ = fmt.Fprintf(&b, "   %s\n", label)
 		}
 	}
 
