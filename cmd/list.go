@@ -1,11 +1,14 @@
 package cmd
 
 import (
-	"fmt"
-	"strings"
-
-	"github.com/kadirbelkuyu/kubecfg/internal/ui"
 	"github.com/spf13/cobra"
+)
+
+var (
+	listFilter      string
+	listCluster     string
+	listNamespace   string
+	listCurrentOnly bool
 )
 
 var listCmd = &cobra.Command{
@@ -25,44 +28,32 @@ var listCmd = &cobra.Command{
 			return
 		}
 
-		var output strings.Builder
-
-		_, _ = fmt.Fprintf(&output, "  %s  %-30s  %-25s  %-40s  %-20s\n",
-			ui.Header(""),
-			ui.Header("NAME"),
-			ui.Header("CLUSTER"),
-			ui.Header("SERVER"),
-			ui.Header("NAMESPACE"))
-
-		_, _ = fmt.Fprintf(&output, "  %s\n",
-			strings.Repeat("─", 120))
-
-		for _, ctx := range contexts {
-			current := "  "
-			nameStyle := ctx.Name
-			if ctx.Current {
-				current = ui.CurrentIndicator()
-				nameStyle = ui.ContextName(ctx.Name)
-			}
-
-			namespace := ctx.Namespace
-			if namespace == "" {
-				namespace = "default"
-			}
-
-			_, _ = fmt.Fprintf(&output, "  %s  %-30s  %-25s  %-40s  %-20s\n",
-				current,
-				nameStyle,
-				ui.Cluster(ctx.Cluster),
-				ui.Server(ctx.Server),
-				ui.Namespace(namespace))
+		filters := contextFilters{
+			query:       listFilter,
+			cluster:     listCluster,
+			namespace:   listNamespace,
+			currentOnly: listCurrentOnly,
 		}
 
-		fmt.Println(output.String())
-		fmt.Printf("\n%s\n", ui.Info(fmt.Sprintf("Total contexts: %d", len(contexts))))
+		contexts = filterContexts(contexts, filters)
+		if len(contexts) == 0 {
+			if filters.active() {
+				printInfo("No contexts matched the provided filters")
+				return
+			}
+
+			printInfo("No contexts found. Add a context with 'kubecfg add'")
+			return
+		}
+
+		printContextTable(contexts)
 	},
 }
 
 func init() {
+	listCmd.Flags().StringVarP(&listFilter, "filter", "f", "", "filter contexts by name, cluster, server, or namespace")
+	listCmd.Flags().StringVar(&listCluster, "cluster", "", "filter by cluster name")
+	listCmd.Flags().StringVar(&listNamespace, "namespace", "", "filter by namespace")
+	listCmd.Flags().BoolVar(&listCurrentOnly, "current", false, "show only the current context")
 	rootCmd.AddCommand(listCmd)
 }
