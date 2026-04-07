@@ -10,6 +10,8 @@ var (
 	ErrContextExists    = errors.New("context already exists")
 	ErrInvalidConfig    = errors.New("invalid kubeconfig format")
 	ErrBackupFailed     = errors.New("failed to create backup")
+	ErrBackupNotFound   = errors.New("backup not found")
+	ErrRestoreFailed    = errors.New("failed to restore backup")
 	ErrPermissionDenied = errors.New("permission denied")
 	ErrNoCurrentContext = errors.New("no current context set")
 )

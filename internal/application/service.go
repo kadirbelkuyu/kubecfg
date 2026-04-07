@@ -2,8 +2,9 @@ package application
 
 import (
 	"fmt"
-	"reflect"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/kadirbelkuyu/kubecfg/internal/domain"
 )
@@ -20,6 +21,12 @@ const (
 	MergeConflictRename    MergeConflictStrategy = "rename"
 	MergeConflictFail      MergeConflictStrategy = "fail"
 )
+
+type BackupInfo struct {
+	Path      string
+	Name      string
+	CreatedAt time.Time
+}
 
 func NewService(repo domain.Repository) *Service {
 	return &Service{repo: repo}
@@ -362,51 +369,49 @@ func (s *Service) ValidateConfig(path string) (*ValidationReport, error) {
 	return report, nil
 }
 
-func (s *Service) ExportContext(targetPath, contextName, outputPath string) error {
-	if !s.repo.Exists(targetPath) {
-		return domain.ErrConfigNotFound
+func (s *Service) ListBackups(targetPath string) ([]BackupInfo, error) {
+	backups, err := s.repo.ListBackups(targetPath)
+	if err != nil {
+		return nil, err
 	}
 
-	config, err := s.repo.Load(targetPath)
+	result := make([]BackupInfo, 0, len(backups))
+	for _, backup := range backups {
+		result = append(result, BackupInfo{
+			Path:      backup,
+			Name:      filepath.Base(backup),
+			CreatedAt: parseBackupTime(backup),
+		})
+	}
+
+	return result, nil
+}
+
+func (s *Service) RestoreBackup(targetPath, backupPath string) error {
+	backups, err := s.repo.ListBackups(targetPath)
 	if err != nil {
 		return err
 	}
 
-	if contextName == "" {
-		if config.CurrentContext == "" {
-			return domain.ErrNoCurrentContext
+	found := false
+	for _, backup := range backups {
+		if backup == backupPath {
+			found = true
+			break
 		}
-		contextName = config.CurrentContext
 	}
 
-	ctx, idx := config.FindContext(contextName)
-	if idx < 0 {
-		return domain.ErrContextNotFound
+	if !found {
+		return domain.ErrBackupNotFound
 	}
 
-	cluster, clusterIdx := config.FindCluster(ctx.Context.Cluster)
-	if clusterIdx < 0 {
-		return domain.ErrClusterNotFound
-	}
-
-	user, userIdx := config.FindUser(ctx.Context.User)
-	if userIdx < 0 {
-		return domain.ErrUserNotFound
-	}
-
-	exported := domain.NewKubeConfig()
-	exported.CurrentContext = ctx.Name
-	exported.Contexts = append(exported.Contexts, *ctx)
-	exported.Clusters = append(exported.Clusters, *cluster)
-	exported.Users = append(exported.Users, *user)
-
-	if s.repo.Exists(outputPath) {
-		if err := s.repo.Backup(outputPath); err != nil {
+	if s.repo.Exists(targetPath) {
+		if err := s.repo.Backup(targetPath); err != nil {
 			return err
 		}
 	}
 
-	return s.repo.Save(outputPath, exported)
+	return s.repo.RestoreBackup(targetPath, backupPath)
 }
 
 func (s *Service) RenameContext(targetPath, oldName, newName string) error {
@@ -678,4 +683,20 @@ func nextAvailableName(base string, exists func(string) bool) string {
 			return candidate
 		}
 	}
+}
+
+func parseBackupTime(path string) time.Time {
+	base := filepath.Base(path)
+	idx := strings.LastIndex(base, ".backup.")
+	if idx < 0 {
+		return time.Time{}
+	}
+
+	timestamp := base[idx+len(".backup."):]
+	parsed, err := time.Parse("20060102-150405", timestamp)
+	if err != nil {
+		return time.Time{}
+	}
+
+	return parsed
 }
