@@ -11,8 +11,6 @@ var (
 	textColor      = lipgloss.Color("#CDD6F4")
 	subtleColor    = lipgloss.Color("#6C7086")
 	dimColor       = lipgloss.Color("#45475A")
-	cyanColor      = lipgloss.Color("#4ECDC4")
-	cyanDarkColor  = lipgloss.Color("#2EC4B6")
 )
 
 var (
