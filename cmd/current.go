@@ -24,24 +24,24 @@ var currentCmd = &cobra.Command{
 			if ctx.Current {
 				var output strings.Builder
 
-				output.WriteString(fmt.Sprintf("\n  %s %s\n\n",
-					ui.IconContext, ui.Header("CURRENT CONTEXT")))
+				_, _ = fmt.Fprintf(&output, "\n  %s %s\n\n",
+					ui.IconContext, ui.Header("CURRENT CONTEXT"))
 
-				output.WriteString(fmt.Sprintf("  %s %s\n",
-					ui.Label("Context:  "), ui.ContextName(ctx.Name)))
+				_, _ = fmt.Fprintf(&output, "  %s %s\n",
+					ui.Label("Context:  "), ui.ContextName(ctx.Name))
 
-				output.WriteString(fmt.Sprintf("  %s %s\n",
-					ui.Label("Cluster:  "), ui.Cluster(ctx.Cluster)))
+				_, _ = fmt.Fprintf(&output, "  %s %s\n",
+					ui.Label("Cluster:  "), ui.Cluster(ctx.Cluster))
 
 				ns := ctx.Namespace
 				if ns == "" {
 					ns = "default"
 				}
-				output.WriteString(fmt.Sprintf("  %s %s\n",
-					ui.Label("Namespace:"), ui.Namespace(ns)))
+				_, _ = fmt.Fprintf(&output, "  %s %s\n",
+					ui.Label("Namespace:"), ui.Namespace(ns))
 
-				output.WriteString(fmt.Sprintf("  %s %s\n",
-					ui.Label("Server:   "), ui.Server(ctx.Server)))
+				_, _ = fmt.Fprintf(&output, "  %s %s\n",
+					ui.Label("Server:   "), ui.Server(ctx.Server))
 
 				fmt.Println(output.String())
 				return
