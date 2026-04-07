@@ -65,14 +65,14 @@ func (r *FileRepository) Save(path string, config *domain.KubeConfig) error {
 	}
 
 	if err := os.Rename(tempFile, path); err != nil {
-		os.Remove(tempFile)
+		_ = os.Remove(tempFile)
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
 	return nil
 }
 
-func (r *FileRepository) Backup(path string) error {
+func (r *FileRepository) Backup(path string) (err error) {
 	if !r.Exists(path) {
 		return nil
 	}
@@ -81,17 +81,25 @@ func (r *FileRepository) Backup(path string) error {
 	if err != nil {
 		return domain.ErrBackupFailed
 	}
-	defer src.Close()
+	defer func() {
+		if closeErr := src.Close(); err == nil && closeErr != nil {
+			err = domain.ErrBackupFailed
+		}
+	}()
 
 	backupPath := fmt.Sprintf("%s.backup.%s", path, time.Now().Format("20060102-150405"))
 	dst, err := os.OpenFile(backupPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, filePermission)
 	if err != nil {
 		return domain.ErrBackupFailed
 	}
-	defer dst.Close()
+	defer func() {
+		if closeErr := dst.Close(); err == nil && closeErr != nil {
+			err = domain.ErrBackupFailed
+		}
+	}()
 
 	if _, err := io.Copy(dst, src); err != nil {
-		os.Remove(backupPath)
+		_ = os.Remove(backupPath)
 		return domain.ErrBackupFailed
 	}
 

@@ -334,10 +334,11 @@ func (m Model) updateFiltering(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	query := strings.ToLower(m.filterInput.Value())
 
-	if m.currentView == ViewContextList {
+	switch m.currentView {
+	case ViewContextList:
 		m.filteredCtx = filterContexts(m.contexts, query)
 		m.contextCursor = 0
-	} else if m.currentView == ViewNamespaceSelector {
+	case ViewNamespaceSelector:
 		m.filteredNs = filterStrings(m.namespaces, query)
 		m.namespaceCursor = 0
 	}
@@ -718,12 +719,12 @@ func (m Model) viewContextList() string {
 
 		if i == m.contextCursor {
 			cursor := SelectedItemStyle.Render(IconCurrent)
-			b.WriteString(fmt.Sprintf(" %s %s\n", cursor, line))
+			_, _ = fmt.Fprintf(&b, " %s %s\n", cursor, line)
 		} else if ctx.Current {
 			marker := CurrentMarkerStyle.Render(IconCheck)
-			b.WriteString(fmt.Sprintf(" %s %s\n", marker, line))
+			_, _ = fmt.Fprintf(&b, " %s %s\n", marker, line)
 		} else {
-			b.WriteString(fmt.Sprintf("   %s\n", line))
+			_, _ = fmt.Fprintf(&b, "   %s\n", line)
 		}
 	}
 
@@ -787,10 +788,10 @@ func (m Model) viewNamespaceSelector() string {
 		if i == m.namespaceCursor {
 			cursor := SelectedItemStyle.Render(IconCurrent)
 			label := SelectedItemStyle.Render(ns)
-			b.WriteString(fmt.Sprintf(" %s %s\n", cursor, label))
+			_, _ = fmt.Fprintf(&b, " %s %s\n", cursor, label)
 		} else {
 			label := NormalItemStyle.Render(ns)
-			b.WriteString(fmt.Sprintf("   %s\n", label))
+			_, _ = fmt.Fprintf(&b, "   %s\n", label)
 		}
 	}
 
@@ -808,10 +809,11 @@ func (m Model) viewAddContext() string {
 	title := HeaderStyle.Render(IconAdd + " Add Context")
 	b.WriteString("\n " + title + "\n\n")
 
-	if m.inputMode == InputFilePath {
+	switch m.inputMode {
+	case InputFilePath:
 		b.WriteString(" " + DimItemStyle.Render("Kubeconfig file path:") + "\n")
 		b.WriteString(" " + m.textInput.View() + "\n")
-	} else if m.inputMode == InputContextName {
+	case InputContextName:
 		b.WriteString(" " + DimItemStyle.Render("File: "+m.selectedContext) + "\n\n")
 		b.WriteString(" " + DimItemStyle.Render("Context name:") + "\n")
 		b.WriteString(" " + m.textInput.View() + "\n")
