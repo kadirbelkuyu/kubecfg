@@ -356,7 +356,8 @@ func (s *Service) SearchContexts(targetPath, query string) ([]ContextInfo, error
 	for _, ctx := range contexts {
 		if strings.Contains(strings.ToLower(ctx.Name), query) ||
 			strings.Contains(strings.ToLower(ctx.Cluster), query) ||
-			strings.Contains(strings.ToLower(ctx.Server), query) {
+			strings.Contains(strings.ToLower(ctx.Server), query) ||
+			strings.Contains(strings.ToLower(ctx.Namespace), query) {
 			results = append(results, ctx)
 		}
 	}
