@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"syscall"
 
+	"github.com/google/uuid"
 	"github.com/kadirbelkuyu/kubecfg/internal/domain"
 )
 
@@ -44,6 +45,10 @@ func (r *GuardProcessRuntime) NextListenAddress() (string, error) {
 }
 
 func (r *GuardProcessRuntime) Start(session *domain.Session) error {
+	if err := r.validateLaunch(session); err != nil {
+		return err
+	}
+
 	devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, filePermission)
 	if err != nil {
 		return fmt.Errorf("open %s: %w", os.DevNull, err)
@@ -52,20 +57,64 @@ func (r *GuardProcessRuntime) Start(session *domain.Session) error {
 		_ = devNull.Close()
 	}()
 
-	cmd := exec.Command(r.binaryPath, "guard", "proxy", "--session-file", r.sessionPath, "--session-id", session.ID)
-	cmd.Stdin = devNull
-	cmd.Stdout = devNull
-	cmd.Stderr = devNull
-
-	if err := cmd.Start(); err != nil {
+	process, err := os.StartProcess(
+		r.binaryPath,
+		[]string{
+			r.binaryPath,
+			"guard",
+			"proxy",
+			"--session-file",
+			r.sessionPath,
+			"--session-id",
+			session.ID,
+		},
+		&os.ProcAttr{
+			Files: []*os.File{devNull, devNull, devNull},
+		},
+	)
+	if err != nil {
 		return fmt.Errorf("start guard proxy process: %w", err)
 	}
 
-	session.ProxyPID = cmd.Process.Pid
+	session.ProxyPID = process.Pid
 
-	if err := cmd.Process.Release(); err != nil {
+	if err := process.Release(); err != nil {
 		return fmt.Errorf("detach guard proxy process: %w", err)
 	}
+
+	return nil
+}
+
+func (r *GuardProcessRuntime) validateLaunch(session *domain.Session) error {
+	if session == nil {
+		return fmt.Errorf("session is required")
+	}
+
+	if _, err := uuid.Parse(session.ID); err != nil {
+		return fmt.Errorf("validate session id: %w", err)
+	}
+
+	binaryPath, err := filepath.Abs(filepath.Clean(r.binaryPath))
+	if err != nil {
+		return fmt.Errorf("resolve binary path: %w", err)
+	}
+
+	fileInfo, err := os.Stat(binaryPath)
+	if err != nil {
+		return fmt.Errorf("stat binary path: %w", err)
+	}
+
+	if fileInfo.IsDir() {
+		return fmt.Errorf("binary path is a directory")
+	}
+
+	sessionPath, err := filepath.Abs(filepath.Clean(r.sessionPath))
+	if err != nil {
+		return fmt.Errorf("resolve session path: %w", err)
+	}
+
+	r.binaryPath = binaryPath
+	r.sessionPath = sessionPath
 
 	return nil
 }
