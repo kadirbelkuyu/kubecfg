@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/kadirbelkuyu/kubecfg/internal/application"
 	"github.com/kadirbelkuyu/kubecfg/internal/config"
@@ -15,6 +16,7 @@ import (
 var (
 	kubeconfigPath string
 	service        *application.Service
+	guardService   *application.GuardService
 )
 
 var rootCmd = &cobra.Command{
@@ -25,6 +27,22 @@ var rootCmd = &cobra.Command{
 		config.Init()
 		repo := infrastructure.NewFileRepository()
 		service = application.NewService(repo)
+		runtime, err := infrastructure.NewGuardProcessRuntime("", config.GetGuardSessionPath())
+		if err != nil {
+			printError(err)
+			os.Exit(1)
+		}
+		sessionStore := infrastructure.NewSessionFileStore(config.GetGuardSessionPath())
+		kubeconfigWriter := infrastructure.NewGuardKubeconfigWriter()
+		sessionService := application.NewSessionService(sessionStore, runtime, kubeconfigWriter)
+		guardService = application.NewGuardService(
+			repo,
+			sessionService,
+			kubeconfigWriter,
+			runtime,
+			filepath.Join(config.GetGuardStateDir(), "guard"),
+			config.GetGuardDefaultTTL(),
+		)
 		if kubeconfigPath == "" {
 			kubeconfigPath = service.GetDefaultPath()
 		}

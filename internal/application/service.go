@@ -3,6 +3,7 @@ package application
 import (
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -367,6 +368,53 @@ func (s *Service) ValidateConfig(path string) (*ValidationReport, error) {
 	}
 
 	return report, nil
+}
+
+func (s *Service) ExportContext(targetPath, contextName, outputPath string) error {
+	if !s.repo.Exists(targetPath) {
+		return domain.ErrConfigNotFound
+	}
+
+	config, err := s.repo.Load(targetPath)
+	if err != nil {
+		return err
+	}
+
+	if contextName == "" {
+		if config.CurrentContext == "" {
+			return domain.ErrNoCurrentContext
+		}
+		contextName = config.CurrentContext
+	}
+
+	ctx, idx := config.FindContext(contextName)
+	if idx < 0 {
+		return domain.ErrContextNotFound
+	}
+
+	cluster, clusterIdx := config.FindCluster(ctx.Context.Cluster)
+	if clusterIdx < 0 {
+		return domain.ErrClusterNotFound
+	}
+
+	user, userIdx := config.FindUser(ctx.Context.User)
+	if userIdx < 0 {
+		return domain.ErrUserNotFound
+	}
+
+	exported := domain.NewKubeConfig()
+	exported.CurrentContext = ctx.Name
+	exported.Contexts = append(exported.Contexts, *ctx)
+	exported.Clusters = append(exported.Clusters, *cluster)
+	exported.Users = append(exported.Users, *user)
+
+	if s.repo.Exists(outputPath) {
+		if err := s.repo.Backup(outputPath); err != nil {
+			return err
+		}
+	}
+
+	return s.repo.Save(outputPath, exported)
 }
 
 func (s *Service) ListBackups(targetPath string) ([]BackupInfo, error) {

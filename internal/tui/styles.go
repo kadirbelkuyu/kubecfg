@@ -8,6 +8,7 @@ var (
 	accentColor    = lipgloss.Color("#F9E2AF")
 	successColor   = lipgloss.Color("#A6E3A1")
 	errorColor     = lipgloss.Color("#F38BA8")
+	warningColor   = lipgloss.Color("#FAB387")
 	textColor      = lipgloss.Color("#CDD6F4")
 	subtleColor    = lipgloss.Color("#6C7086")
 	dimColor       = lipgloss.Color("#45475A")
@@ -89,6 +90,26 @@ var (
 				Foreground(accentColor).
 				Background(lipgloss.Color("#313244")).
 				Padding(0, 1)
+
+	GuardBannerStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#11111B")).
+				Background(warningColor).
+				Bold(true).
+				Padding(0, 1).
+				MarginTop(1)
+
+	GuardPanelStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(warningColor).
+			Padding(1, 2)
+
+	GuardHealthyStyle = lipgloss.NewStyle().
+				Foreground(successColor).
+				Bold(true)
+
+	GuardDegradedStyle = lipgloss.NewStyle().
+				Foreground(warningColor).
+				Bold(true)
 )
 
 const (
@@ -107,6 +128,7 @@ const (
 	IconAdd       = "+"
 	IconRename    = "✎"
 	IconRemove    = "−"
+	IconGuard     = "G"
 )
 
 type MenuItem struct {
@@ -117,6 +139,7 @@ type MenuItem struct {
 var MenuItems = []MenuItem{
 	{Icon: IconSwitch, Label: "Switch Context"},
 	{Icon: IconNamespace, Label: "Set Namespace"},
+	{Icon: IconGuard, Label: "Guard"},
 	{Icon: IconAdd, Label: "Add Context"},
 	{Icon: IconRename, Label: "Rename Context"},
 	{Icon: IconRemove, Label: "Remove Context"},
