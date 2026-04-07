@@ -30,6 +30,14 @@ func (m *mockRepository) Backup(path string) error {
 	return nil
 }
 
+func (m *mockRepository) ListBackups(path string) ([]string, error) {
+	return nil, nil
+}
+
+func (m *mockRepository) RestoreBackup(targetPath, backupPath string) error {
+	return nil
+}
+
 func (m *mockRepository) Exists(path string) bool {
 	return m.exists
 }
