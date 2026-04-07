@@ -2,6 +2,7 @@ package application
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/kadirbelkuyu/kubecfg/internal/domain"
@@ -10,6 +11,15 @@ import (
 type Service struct {
 	repo domain.Repository
 }
+
+type MergeConflictStrategy string
+
+const (
+	MergeConflictSkip      MergeConflictStrategy = "skip"
+	MergeConflictOverwrite MergeConflictStrategy = "overwrite"
+	MergeConflictRename    MergeConflictStrategy = "rename"
+	MergeConflictFail      MergeConflictStrategy = "fail"
+)
 
 func NewService(repo domain.Repository) *Service {
 	return &Service{repo: repo}
@@ -239,7 +249,12 @@ func (s *Service) SetNamespace(targetPath, namespace string) error {
 	return s.repo.Save(targetPath, config)
 }
 
-func (s *Service) MergeConfigs(sourcePaths []string, outputPath string) error {
+func (s *Service) MergeConfigs(sourcePaths []string, outputPath string, strategy string) error {
+	conflictStrategy, err := parseMergeConflictStrategy(strategy)
+	if err != nil {
+		return err
+	}
+
 	merged := domain.NewKubeConfig()
 
 	for _, path := range sourcePaths {
@@ -248,26 +263,20 @@ func (s *Service) MergeConfigs(sourcePaths []string, outputPath string) error {
 			return fmt.Errorf("failed to load %s: %w", path, err)
 		}
 
-		for _, cluster := range config.Clusters {
-			if _, idx := merged.FindCluster(cluster.Name); idx < 0 {
-				merged.Clusters = append(merged.Clusters, cluster)
-			}
-		}
-
-		for _, user := range config.Users {
-			if _, idx := merged.FindUser(user.Name); idx < 0 {
-				merged.Users = append(merged.Users, user)
-			}
-		}
+		currentContextName := ""
 
 		for _, ctx := range config.Contexts {
-			if _, idx := merged.FindContext(ctx.Name); idx < 0 {
-				merged.Contexts = append(merged.Contexts, ctx)
+			mergedName, imported, err := mergeContext(merged, config, ctx, conflictStrategy)
+			if err != nil {
+				return fmt.Errorf("failed to merge context %q from %s: %w", ctx.Name, path, err)
+			}
+			if imported && config.CurrentContext == ctx.Name {
+				currentContextName = mergedName
 			}
 		}
 
-		if merged.CurrentContext == "" && config.CurrentContext != "" {
-			merged.CurrentContext = config.CurrentContext
+		if merged.CurrentContext == "" && currentContextName != "" {
+			merged.CurrentContext = currentContextName
 		}
 	}
 
@@ -290,6 +299,53 @@ func (s *Service) ValidateConfig(path string) error {
 	}
 
 	return nil
+}
+
+func (s *Service) ExportContext(targetPath, contextName, outputPath string) error {
+	if !s.repo.Exists(targetPath) {
+		return domain.ErrConfigNotFound
+	}
+
+	config, err := s.repo.Load(targetPath)
+	if err != nil {
+		return err
+	}
+
+	if contextName == "" {
+		if config.CurrentContext == "" {
+			return domain.ErrNoCurrentContext
+		}
+		contextName = config.CurrentContext
+	}
+
+	ctx, idx := config.FindContext(contextName)
+	if idx < 0 {
+		return domain.ErrContextNotFound
+	}
+
+	cluster, clusterIdx := config.FindCluster(ctx.Context.Cluster)
+	if clusterIdx < 0 {
+		return domain.ErrClusterNotFound
+	}
+
+	user, userIdx := config.FindUser(ctx.Context.User)
+	if userIdx < 0 {
+		return domain.ErrUserNotFound
+	}
+
+	exported := domain.NewKubeConfig()
+	exported.CurrentContext = ctx.Name
+	exported.Contexts = append(exported.Contexts, *ctx)
+	exported.Clusters = append(exported.Clusters, *cluster)
+	exported.Users = append(exported.Users, *user)
+
+	if s.repo.Exists(outputPath) {
+		if err := s.repo.Backup(outputPath); err != nil {
+			return err
+		}
+	}
+
+	return s.repo.Save(outputPath, exported)
 }
 
 func (s *Service) RenameContext(targetPath, oldName, newName string) error {
@@ -371,4 +427,193 @@ type ContextInfo struct {
 	Namespace string
 	Server    string
 	Current   bool
+}
+
+func parseMergeConflictStrategy(strategy string) (MergeConflictStrategy, error) {
+	switch MergeConflictStrategy(strings.ToLower(strings.TrimSpace(strategy))) {
+	case "", MergeConflictSkip:
+		return MergeConflictSkip, nil
+	case MergeConflictOverwrite:
+		return MergeConflictOverwrite, nil
+	case MergeConflictRename:
+		return MergeConflictRename, nil
+	case MergeConflictFail:
+		return MergeConflictFail, nil
+	default:
+		return "", fmt.Errorf("unsupported merge conflict strategy: %s", strategy)
+	}
+}
+
+func mergeContext(target, source *domain.KubeConfig, ctx domain.ContextEntry, strategy MergeConflictStrategy) (string, bool, error) {
+	cluster, clusterIdx := source.FindCluster(ctx.Context.Cluster)
+	if clusterIdx < 0 {
+		return "", false, fmt.Errorf("missing cluster %q", ctx.Context.Cluster)
+	}
+
+	user, userIdx := source.FindUser(ctx.Context.User)
+	if userIdx < 0 {
+		return "", false, fmt.Errorf("missing user %q", ctx.Context.User)
+	}
+
+	clusterEntry := *cluster
+	userEntry := *user
+	contextEntry := ctx
+
+	clusterName, importCluster, err := resolveClusterConflict(target, clusterEntry, strategy)
+	if err != nil {
+		return "", false, err
+	}
+	if clusterName == "" {
+		return "", false, nil
+	}
+	clusterEntry.Name = clusterName
+
+	userName, importUser, err := resolveUserConflict(target, userEntry, strategy)
+	if err != nil {
+		return "", false, err
+	}
+	if userName == "" {
+		return "", false, nil
+	}
+	userEntry.Name = userName
+
+	contextEntry.Context.Cluster = clusterName
+	contextEntry.Context.User = userName
+
+	contextName, importContext, err := resolveContextConflict(target, contextEntry, strategy)
+	if err != nil {
+		return "", false, err
+	}
+	if !importContext {
+		return "", false, nil
+	}
+	contextEntry.Name = contextName
+
+	if importCluster {
+		upsertCluster(target, clusterEntry)
+	}
+	if importUser {
+		upsertUser(target, userEntry)
+	}
+	upsertContext(target, contextEntry)
+
+	return contextEntry.Name, true, nil
+}
+
+func resolveClusterConflict(target *domain.KubeConfig, entry domain.ClusterEntry, strategy MergeConflictStrategy) (string, bool, error) {
+	existing, idx := target.FindCluster(entry.Name)
+	if idx < 0 {
+		return entry.Name, true, nil
+	}
+
+	if reflect.DeepEqual(existing.Cluster, entry.Cluster) {
+		return entry.Name, false, nil
+	}
+
+	switch strategy {
+	case MergeConflictSkip:
+		return "", false, nil
+	case MergeConflictOverwrite:
+		return entry.Name, true, nil
+	case MergeConflictRename:
+		return nextAvailableName(entry.Name, func(name string) bool {
+			_, idx := target.FindCluster(name)
+			return idx >= 0
+		}), true, nil
+	case MergeConflictFail:
+		return "", false, fmt.Errorf("cluster %q already exists", entry.Name)
+	default:
+		return "", false, fmt.Errorf("unsupported merge conflict strategy: %s", strategy)
+	}
+}
+
+func resolveUserConflict(target *domain.KubeConfig, entry domain.UserEntry, strategy MergeConflictStrategy) (string, bool, error) {
+	existing, idx := target.FindUser(entry.Name)
+	if idx < 0 {
+		return entry.Name, true, nil
+	}
+
+	if reflect.DeepEqual(existing.User, entry.User) {
+		return entry.Name, false, nil
+	}
+
+	switch strategy {
+	case MergeConflictSkip:
+		return "", false, nil
+	case MergeConflictOverwrite:
+		return entry.Name, true, nil
+	case MergeConflictRename:
+		return nextAvailableName(entry.Name, func(name string) bool {
+			_, idx := target.FindUser(name)
+			return idx >= 0
+		}), true, nil
+	case MergeConflictFail:
+		return "", false, fmt.Errorf("user %q already exists", entry.Name)
+	default:
+		return "", false, fmt.Errorf("unsupported merge conflict strategy: %s", strategy)
+	}
+}
+
+func resolveContextConflict(target *domain.KubeConfig, entry domain.ContextEntry, strategy MergeConflictStrategy) (string, bool, error) {
+	existing, idx := target.FindContext(entry.Name)
+	if idx < 0 {
+		return entry.Name, true, nil
+	}
+
+	if reflect.DeepEqual(existing.Context, entry.Context) {
+		return entry.Name, false, nil
+	}
+
+	switch strategy {
+	case MergeConflictSkip:
+		return "", false, nil
+	case MergeConflictOverwrite:
+		return entry.Name, true, nil
+	case MergeConflictRename:
+		return nextAvailableName(entry.Name, func(name string) bool {
+			_, idx := target.FindContext(name)
+			return idx >= 0
+		}), true, nil
+	case MergeConflictFail:
+		return "", false, fmt.Errorf("context %q already exists", entry.Name)
+	default:
+		return "", false, fmt.Errorf("unsupported merge conflict strategy: %s", strategy)
+	}
+}
+
+func upsertCluster(config *domain.KubeConfig, entry domain.ClusterEntry) {
+	if _, idx := config.FindCluster(entry.Name); idx >= 0 {
+		config.Clusters[idx] = entry
+		return
+	}
+	config.Clusters = append(config.Clusters, entry)
+}
+
+func upsertUser(config *domain.KubeConfig, entry domain.UserEntry) {
+	if _, idx := config.FindUser(entry.Name); idx >= 0 {
+		config.Users[idx] = entry
+		return
+	}
+	config.Users = append(config.Users, entry)
+}
+
+func upsertContext(config *domain.KubeConfig, entry domain.ContextEntry) {
+	if _, idx := config.FindContext(entry.Name); idx >= 0 {
+		config.Contexts[idx] = entry
+		return
+	}
+	config.Contexts = append(config.Contexts, entry)
+}
+
+func nextAvailableName(base string, exists func(string) bool) string {
+	if !exists(base) {
+		return base
+	}
+
+	for i := 2; ; i++ {
+		candidate := fmt.Sprintf("%s-%d", base, i)
+		if !exists(candidate) {
+			return candidate
+		}
+	}
 }
