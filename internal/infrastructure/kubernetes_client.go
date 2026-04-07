@@ -63,7 +63,11 @@ func (k *KubernetesClient) listNamespacesWithClient() ([]string, error) {
 }
 
 func (k *KubernetesClient) listNamespacesWithKubectl() ([]string, error) {
-	cmd := exec.Command("kubectl", "get", "namespaces", "-o", "name", "--kubeconfig", k.kubeconfigPath)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// #nosec G204 -- kubectl is invoked directly without a shell and the kubeconfig path is passed as a literal argument.
+	cmd := exec.CommandContext(ctx, "kubectl", "get", "namespaces", "-o", "name", "--kubeconfig", k.kubeconfigPath)
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, err

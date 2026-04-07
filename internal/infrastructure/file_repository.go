@@ -30,7 +30,18 @@ func (r *FileRepository) Load(path string) (*domain.KubeConfig, error) {
 		return nil, domain.ErrConfigNotFound
 	}
 
-	data, err := os.ReadFile(path)
+	root, fileName, err := openRootForPath(path)
+	if err != nil {
+		if os.IsPermission(err) {
+			return nil, domain.ErrPermissionDenied
+		}
+		return nil, fmt.Errorf("failed to open file: %w", err)
+	}
+	defer func() {
+		_ = root.Close()
+	}()
+
+	data, err := root.ReadFile(fileName)
 	if err != nil {
 		if os.IsPermission(err) {
 			return nil, domain.ErrPermissionDenied
@@ -57,16 +68,27 @@ func (r *FileRepository) Save(path string, config *domain.KubeConfig) error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	tempFile := path + ".tmp"
-	if err := os.WriteFile(tempFile, data, filePermission); err != nil {
+	root, fileName, err := openRootForPath(path)
+	if err != nil {
+		if os.IsPermission(err) {
+			return domain.ErrPermissionDenied
+		}
+		return fmt.Errorf("failed to open config directory: %w", err)
+	}
+	defer func() {
+		_ = root.Close()
+	}()
+
+	tempFile := fileName + ".tmp"
+	if err := root.WriteFile(tempFile, data, filePermission); err != nil {
 		if os.IsPermission(err) {
 			return domain.ErrPermissionDenied
 		}
 		return fmt.Errorf("failed to write file: %w", err)
 	}
 
-	if err := os.Rename(tempFile, path); err != nil {
-		_ = os.Remove(tempFile)
+	if err := root.Rename(tempFile, fileName); err != nil {
+		_ = root.Remove(tempFile)
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
@@ -124,7 +146,18 @@ func (r *FileRepository) GetDefaultPath() string {
 }
 
 func (r *FileRepository) copyFile(sourcePath, targetPath string, fallback error) (err error) {
-	src, err := os.Open(sourcePath)
+	sourceRoot, sourceName, err := openRootForPath(sourcePath)
+	if err != nil {
+		if os.IsPermission(err) {
+			return domain.ErrPermissionDenied
+		}
+		return fallback
+	}
+	defer func() {
+		_ = sourceRoot.Close()
+	}()
+
+	src, err := sourceRoot.Open(sourceName)
 	if err != nil {
 		if os.IsPermission(err) {
 			return domain.ErrPermissionDenied
@@ -142,8 +175,19 @@ func (r *FileRepository) copyFile(sourcePath, targetPath string, fallback error)
 		return fallback
 	}
 
-	tempPath := targetPath + ".tmp"
-	dst, err := os.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, filePermission)
+	targetRoot, targetName, err := openRootForPath(targetPath)
+	if err != nil {
+		if os.IsPermission(err) {
+			return domain.ErrPermissionDenied
+		}
+		return fallback
+	}
+	defer func() {
+		_ = targetRoot.Close()
+	}()
+
+	tempPath := targetName + ".tmp"
+	dst, err := targetRoot.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, filePermission)
 	if err != nil {
 		if os.IsPermission(err) {
 			return domain.ErrPermissionDenied
@@ -153,19 +197,34 @@ func (r *FileRepository) copyFile(sourcePath, targetPath string, fallback error)
 
 	if _, err := io.Copy(dst, src); err != nil {
 		_ = dst.Close()
-		_ = os.Remove(tempPath)
+		_ = targetRoot.Remove(tempPath)
 		return fallback
 	}
 
 	if err := dst.Close(); err != nil {
-		_ = os.Remove(tempPath)
+		_ = targetRoot.Remove(tempPath)
 		return fallback
 	}
 
-	if err := os.Rename(tempPath, targetPath); err != nil {
-		_ = os.Remove(tempPath)
+	if err := targetRoot.Rename(tempPath, targetName); err != nil {
+		_ = targetRoot.Remove(tempPath)
 		return fallback
 	}
 
 	return nil
+}
+
+func openRootForPath(path string) (*os.Root, string, error) {
+	cleanPath := filepath.Clean(path)
+	fileName := filepath.Base(cleanPath)
+	if fileName == "." || fileName == string(filepath.Separator) {
+		return nil, "", fmt.Errorf("invalid file path: %s", path)
+	}
+
+	root, err := os.OpenRoot(filepath.Dir(cleanPath))
+	if err != nil {
+		return nil, "", err
+	}
+
+	return root, fileName, nil
 }
