@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/kadirbelkuyu/kubecfg/internal/domain"
@@ -72,38 +73,41 @@ func (r *FileRepository) Save(path string, config *domain.KubeConfig) error {
 	return nil
 }
 
-func (r *FileRepository) Backup(path string) (err error) {
+func (r *FileRepository) Backup(path string) error {
 	if !r.Exists(path) {
 		return nil
 	}
 
-	src, err := os.Open(path)
-	if err != nil {
-		return domain.ErrBackupFailed
-	}
-	defer func() {
-		if closeErr := src.Close(); err == nil && closeErr != nil {
-			err = domain.ErrBackupFailed
-		}
-	}()
-
 	backupPath := fmt.Sprintf("%s.backup.%s", path, time.Now().Format("20060102-150405"))
-	dst, err := os.OpenFile(backupPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, filePermission)
+	return r.copyFile(path, backupPath, domain.ErrBackupFailed)
+}
+
+func (r *FileRepository) ListBackups(path string) ([]string, error) {
+	backups, err := filepath.Glob(path + ".backup.*")
 	if err != nil {
-		return domain.ErrBackupFailed
+		return nil, err
 	}
-	defer func() {
-		if closeErr := dst.Close(); err == nil && closeErr != nil {
-			err = domain.ErrBackupFailed
+
+	sort.Slice(backups, func(i, j int) bool {
+		leftInfo, leftErr := os.Stat(backups[i])
+		rightInfo, rightErr := os.Stat(backups[j])
+
+		if leftErr != nil || rightErr != nil {
+			return backups[i] > backups[j]
 		}
-	}()
 
-	if _, err := io.Copy(dst, src); err != nil {
-		_ = os.Remove(backupPath)
-		return domain.ErrBackupFailed
+		return leftInfo.ModTime().After(rightInfo.ModTime())
+	})
+
+	return backups, nil
+}
+
+func (r *FileRepository) RestoreBackup(targetPath, backupPath string) error {
+	if !r.Exists(backupPath) {
+		return domain.ErrBackupNotFound
 	}
 
-	return nil
+	return r.copyFile(backupPath, targetPath, domain.ErrRestoreFailed)
 }
 
 func (r *FileRepository) Exists(path string) bool {
@@ -117,4 +121,51 @@ func (r *FileRepository) GetDefaultPath() string {
 		return ""
 	}
 	return filepath.Join(home, defaultConfigDir, defaultConfigFile)
+}
+
+func (r *FileRepository) copyFile(sourcePath, targetPath string, fallback error) (err error) {
+	src, err := os.Open(sourcePath)
+	if err != nil {
+		if os.IsPermission(err) {
+			return domain.ErrPermissionDenied
+		}
+		return fallback
+	}
+	defer func() {
+		if closeErr := src.Close(); err == nil && closeErr != nil {
+			err = fallback
+		}
+	}()
+
+	dir := filepath.Dir(targetPath)
+	if err := os.MkdirAll(dir, dirPermission); err != nil {
+		return fallback
+	}
+
+	tempPath := targetPath + ".tmp"
+	dst, err := os.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, filePermission)
+	if err != nil {
+		if os.IsPermission(err) {
+			return domain.ErrPermissionDenied
+		}
+		return fallback
+	}
+
+	if _, err := io.Copy(dst, src); err != nil {
+		_ = dst.Close()
+		_ = os.Remove(tempPath)
+		return fallback
+	}
+
+	if err := dst.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return fallback
+	}
+
+	if err := os.Rename(tempPath, targetPath); err != nil {
+		_ = os.Remove(tempPath)
+		return fallback
+	}
+
+	return nil
 }
