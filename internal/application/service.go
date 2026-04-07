@@ -2,7 +2,9 @@ package application
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/kadirbelkuyu/kubecfg/internal/domain"
 )
@@ -34,6 +36,12 @@ type ValidationReport struct {
 
 func (r ValidationReport) IsValid() bool {
 	return len(r.Issues) == 0
+}
+
+type BackupInfo struct {
+	Path      string
+	Name      string
+	CreatedAt time.Time
 }
 
 func NewService(repo domain.Repository) *Service {
@@ -378,6 +386,51 @@ func (s *Service) ValidateConfig(path string) (*ValidationReport, error) {
 	return report, nil
 }
 
+func (s *Service) ListBackups(targetPath string) ([]BackupInfo, error) {
+	backups, err := s.repo.ListBackups(targetPath)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]BackupInfo, 0, len(backups))
+	for _, backup := range backups {
+		result = append(result, BackupInfo{
+			Path:      backup,
+			Name:      filepath.Base(backup),
+			CreatedAt: parseBackupTime(backup),
+		})
+	}
+
+	return result, nil
+}
+
+func (s *Service) RestoreBackup(targetPath, backupPath string) error {
+	backups, err := s.repo.ListBackups(targetPath)
+	if err != nil {
+		return err
+	}
+
+	found := false
+	for _, backup := range backups {
+		if backup == backupPath {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return domain.ErrBackupNotFound
+	}
+
+	if s.repo.Exists(targetPath) {
+		if err := s.repo.Backup(targetPath); err != nil {
+			return err
+		}
+	}
+
+	return s.repo.RestoreBackup(targetPath, backupPath)
+}
+
 func (s *Service) RenameContext(targetPath, oldName, newName string) error {
 	if !s.repo.Exists(targetPath) {
 		return domain.ErrConfigNotFound
@@ -462,4 +515,20 @@ type ContextInfo struct {
 func hasDuplicate(items map[string]struct{}, name string) bool {
 	_, exists := items[name]
 	return exists
+}
+
+func parseBackupTime(path string) time.Time {
+	base := filepath.Base(path)
+	idx := strings.LastIndex(base, ".backup.")
+	if idx < 0 {
+		return time.Time{}
+	}
+
+	timestamp := base[idx+len(".backup."):]
+	parsed, err := time.Parse("20060102-150405", timestamp)
+	if err != nil {
+		return time.Time{}
+	}
+
+	return parsed
 }
