@@ -32,6 +32,14 @@ func (m *mergeExportMockRepository) Backup(path string) error {
 	return nil
 }
 
+func (m *mergeExportMockRepository) ListBackups(path string) ([]string, error) {
+	return nil, nil
+}
+
+func (m *mergeExportMockRepository) RestoreBackup(targetPath, backupPath string) error {
+	return nil
+}
+
 func (m *mergeExportMockRepository) Exists(path string) bool {
 	_, ok := m.configs[path]
 	return ok
