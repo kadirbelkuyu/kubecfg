@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/viper"
 )
@@ -18,6 +19,9 @@ func Init() {
 	v.AutomaticEnv()
 
 	v.SetDefault("kubeconfig", getDefaultKubeconfigPath())
+	v.SetDefault("guard.state_dir", getDefaultGuardStateDir())
+	v.SetDefault("guard.session_path", filepath.Join(getDefaultGuardStateDir(), "session.json"))
+	v.SetDefault("guard.default_ttl", "30m")
 }
 
 func getDefaultKubeconfigPath() string {
@@ -41,4 +45,28 @@ func GetKubeconfigPath() string {
 		return kubeconfigPath
 	}
 	return v.GetString("kubeconfig")
+}
+
+func GetGuardStateDir() string {
+	return v.GetString("guard.state_dir")
+}
+
+func GetGuardSessionPath() string {
+	return v.GetString("guard.session_path")
+}
+
+func GetGuardDefaultTTL() time.Duration {
+	ttl, err := time.ParseDuration(v.GetString("guard.default_ttl"))
+	if err != nil {
+		return 30 * time.Minute
+	}
+	return ttl
+}
+
+func getDefaultGuardStateDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".kubecfg")
 }

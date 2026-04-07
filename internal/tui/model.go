@@ -2,7 +2,9 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -10,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/kadirbelkuyu/kubecfg/internal/application"
 	"github.com/kadirbelkuyu/kubecfg/internal/config"
+	"github.com/kadirbelkuyu/kubecfg/internal/domain"
 	"github.com/kadirbelkuyu/kubecfg/internal/infrastructure"
 )
 
@@ -22,6 +25,7 @@ const (
 	ViewAddContext
 	ViewRenameContext
 	ViewRemoveConfirm
+	ViewGuard
 )
 
 type InputMode int
@@ -35,6 +39,7 @@ const (
 
 type Model struct {
 	service         *application.Service
+	guardService    *application.GuardService
 	currentView     View
 	menuCursor      int
 	contexts        []application.ContextInfo
@@ -53,11 +58,30 @@ type Model struct {
 	inputMode       InputMode
 	textInput       textinput.Model
 	selectedContext string
+	guardStatus     *application.GuardStatus
+	guardCursor     int
+	guardTTLIndex   int
+	guardTTLOptions []time.Duration
 }
 
-func NewModel() Model {
+func NewModel() (Model, error) {
 	repo := infrastructure.NewFileRepository()
 	service := application.NewService(repo)
+	runtime, err := infrastructure.NewGuardProcessRuntime("", config.GetGuardSessionPath())
+	if err != nil {
+		return Model{}, fmt.Errorf("create guard runtime: %w", err)
+	}
+	guardWriter := infrastructure.NewGuardKubeconfigWriter()
+	sessionStore := infrastructure.NewSessionFileStore(config.GetGuardSessionPath())
+	sessionService := application.NewSessionService(sessionStore, runtime, guardWriter)
+	guardService := application.NewGuardService(
+		repo,
+		sessionService,
+		guardWriter,
+		runtime,
+		filepath.Join(config.GetGuardStateDir(), "guard"),
+		config.GetGuardDefaultTTL(),
+	)
 
 	ti := textinput.New()
 	ti.Placeholder = "type to filter..."
@@ -69,16 +93,19 @@ func NewModel() Model {
 	input.Width = 40
 
 	return Model{
-		service:     service,
-		currentView: ViewMenu,
-		menuCursor:  0,
-		filterInput: ti,
-		textInput:   input,
-	}
+		service:         service,
+		guardService:    guardService,
+		currentView:     ViewMenu,
+		menuCursor:      0,
+		filterInput:     ti,
+		textInput:       input,
+		guardTTLOptions: []time.Duration{15 * time.Minute, 30 * time.Minute, time.Hour, 2 * time.Hour},
+		guardTTLIndex:   1,
+	}, nil
 }
 
 func (m Model) Init() tea.Cmd {
-	return m.loadContexts
+	return tea.Batch(m.loadContexts, m.loadGuardStatus)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -128,6 +155,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateNamespaceSelector(msg)
 		case ViewRemoveConfirm:
 			return m.updateRemoveConfirm(msg)
+		case ViewGuard:
+			return m.updateGuard(msg)
 		}
 
 	case tea.WindowSizeMsg:
@@ -188,6 +217,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.loadContexts
 
+	case guardStatusLoadedMsg:
+		if msg.err != nil {
+			m.errorMessage = msg.err.Error()
+			return m, nil
+		}
+		m.guardStatus = msg.status
+		if msg.status != nil && msg.status.Active {
+			return m, tickGuardStatus()
+		}
+		return m, nil
+
+	case guardStartedMsg:
+		if msg.err != nil {
+			m.errorMessage = msg.err.Error()
+			return m, nil
+		}
+		m.statusMessage = fmt.Sprintf("Guard started: export KUBECONFIG=%s", msg.session.GeneratedKubeconfigPath)
+		return m, m.loadGuardStatus
+
+	case guardStoppedMsg:
+		if msg.err != nil {
+			m.errorMessage = msg.err.Error()
+			return m, nil
+		}
+		m.statusMessage = "Guard stopped"
+		return m, m.loadGuardStatus
+
+	case guardTickMsg:
+		if m.guardStatus != nil && m.guardStatus.Active {
+			return m, m.loadGuardStatus
+		}
+		return m, nil
+
 	case tea.MouseMsg:
 		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
 			switch m.currentView {
@@ -219,6 +281,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if len(m.filteredNs) > 0 {
 					return m, m.setNamespace(m.filteredNs[m.namespaceCursor])
 				}
+			case ViewGuard:
+				return m, m.selectGuardAction()
 			}
 		}
 		if msg.Button == tea.MouseButtonWheelUp {
@@ -402,6 +466,10 @@ func (m Model) selectMenuItem() (tea.Model, tea.Cmd) {
 		m.namespaceCursor = 0
 		m.resetFilter()
 		return m, m.loadNamespaces
+	case "Guard":
+		m.currentView = ViewGuard
+		m.guardCursor = 0
+		return m, m.loadGuardStatus
 	case "Add Context":
 		m.currentView = ViewAddContext
 		m.inputMode = InputFilePath
@@ -506,6 +574,38 @@ func (m Model) updateRemoveConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) updateGuard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	actions := m.guardActions()
+
+	switch {
+	case key.Matches(msg, Keys.Up):
+		if m.guardCursor > 0 {
+			m.guardCursor--
+		}
+	case key.Matches(msg, Keys.Down):
+		if m.guardCursor < len(actions)-1 {
+			m.guardCursor++
+		}
+	case key.Matches(msg, Keys.Select):
+		return m, m.selectGuardAction()
+	case key.Matches(msg, Keys.Refresh):
+		return m, m.loadGuardStatus
+	default:
+		switch msg.String() {
+		case "[":
+			if m.guardTTLIndex > 0 {
+				m.guardTTLIndex--
+			}
+		case "]":
+			if m.guardTTLIndex < len(m.guardTTLOptions)-1 {
+				m.guardTTLIndex++
+			}
+		}
+	}
+
+	return m, nil
+}
+
 func (m Model) updateNamespaceSelector(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, Keys.Up):
@@ -544,6 +644,10 @@ func (m Model) View() string {
 
 	content.WriteString(m.renderHeader())
 	content.WriteString("\n")
+	if banner := m.renderGuardBanner(); banner != "" {
+		content.WriteString(banner)
+		content.WriteString("\n\n")
+	}
 
 	switch m.currentView {
 	case ViewMenu:
@@ -558,6 +662,8 @@ func (m Model) View() string {
 		content.WriteString(m.viewRenameContext())
 	case ViewRemoveConfirm:
 		content.WriteString(m.viewRemoveConfirm())
+	case ViewGuard:
+		content.WriteString(m.viewGuard())
 	}
 
 	if m.errorMessage != "" {
@@ -639,11 +745,37 @@ func (m Model) renderHelp() string {
 	case ViewRemoveConfirm:
 		addKey("y/n", "confirm")
 		addKey("esc", "cancel")
+	case ViewGuard:
+		addKey("enter", "select")
+		addKey("r", "refresh")
+		addKey("[ ]", "ttl")
+		addKey("esc", "back")
 	}
 
 	addKey("q", "quit")
 
 	return " " + strings.Join(parts, "  ")
+}
+
+func (m Model) renderGuardBanner() string {
+	if m.guardStatus == nil || !m.guardStatus.Active || m.guardStatus.Session == nil {
+		return ""
+	}
+
+	session := m.guardStatus.Session
+	parts := []string{
+		"Guard Active",
+		session.ModeDisplay(),
+		session.TargetContext,
+		session.NamespaceDisplay(),
+		formatGuardDuration(m.guardStatus.Remaining),
+	}
+
+	if m.width == 0 || m.width > 110 {
+		parts = append(parts, session.ProxyListenAddress)
+	}
+
+	return GuardBannerStyle.Render(strings.Join(parts, " | "))
 }
 
 func (m Model) viewMenu() string {
@@ -848,6 +980,55 @@ func (m Model) viewRemoveConfirm() string {
 	return b.String()
 }
 
+func (m Model) viewGuard() string {
+	var b strings.Builder
+
+	title := HeaderStyle.Render(IconGuard + " Guard")
+	b.WriteString("\n " + title + "\n\n")
+
+	if m.guardStatus == nil || m.guardStatus.Session == nil {
+		b.WriteString(GuardPanelStyle.Render(strings.Join([]string{
+			"Status: inactive",
+			"Readonly session: not started",
+			"TTL preset: " + m.selectedGuardTTL().String(),
+			"Press enter on Start Readonly Guard to create a temporary guarded kubeconfig",
+		}, "\n")))
+	} else {
+		session := m.guardStatus.Session
+		healthStyle := GuardHealthyStyle
+		if !m.guardStatus.Active {
+			healthStyle = GuardDegradedStyle
+		}
+
+		summary := []string{
+			"Status: " + healthStyle.Render(m.guardStatus.Health),
+			"Mode: " + session.ModeDisplay(),
+			"Context: " + session.TargetContext,
+			"Namespace: " + session.NamespaceDisplay(),
+			"Remaining: " + formatGuardDuration(m.guardStatus.Remaining),
+			"Proxy: " + session.ProxyListenAddress,
+			"Kubeconfig: " + session.GeneratedKubeconfigPath,
+			"Expires: " + session.ExpiresAt.Format(time.RFC3339),
+		}
+		b.WriteString(GuardPanelStyle.Render(strings.Join(summary, "\n")))
+	}
+
+	b.WriteString("\n\n")
+	b.WriteString(" " + DimItemStyle.Render("TTL preset: "+m.selectedGuardTTL().String()) + "\n\n")
+
+	for index, action := range m.guardActions() {
+		label := NormalItemStyle.Render(action)
+		prefix := "  "
+		if index == m.guardCursor {
+			prefix = SelectedItemStyle.Render(IconCurrent) + " "
+			label = SelectedItemStyle.Render(action)
+		}
+		b.WriteString(" " + prefix + label + "\n")
+	}
+
+	return b.String()
+}
+
 type contextsLoadedMsg struct {
 	contexts []application.ContextInfo
 	err      error
@@ -877,10 +1058,32 @@ type contextRemovedMsg struct {
 	err  error
 }
 
+type guardStatusLoadedMsg struct {
+	status *application.GuardStatus
+	err    error
+}
+
+type guardStartedMsg struct {
+	session *domain.Session
+	err     error
+}
+
+type guardStoppedMsg struct {
+	session *domain.Session
+	err     error
+}
+
+type guardTickMsg time.Time
+
 func (m Model) loadContexts() tea.Msg {
 	kubeconfigPath := config.GetKubeconfigPath()
 	contexts, err := m.service.ListContexts(kubeconfigPath)
 	return contextsLoadedMsg{contexts: contexts, err: err}
+}
+
+func (m Model) loadGuardStatus() tea.Msg {
+	status, err := m.guardService.Status()
+	return guardStatusLoadedMsg{status: status, err: err}
 }
 
 func (m Model) loadNamespaces() tea.Msg {
@@ -959,17 +1162,85 @@ func (m Model) showCurrentInfo() tea.Msg {
 	return errorMsg("No current context")
 }
 
+func (m Model) startGuard(ttl time.Duration) tea.Cmd {
+	return func() tea.Msg {
+		session, err := m.guardService.StartReadonly(application.GuardStartOptions{
+			SourcePath: config.GetKubeconfigPath(),
+			TTL:        ttl,
+		})
+		return guardStartedMsg{session: session, err: err}
+	}
+}
+
+func (m Model) stopGuard() tea.Cmd {
+	return func() tea.Msg {
+		session, err := m.guardService.Stop()
+		return guardStoppedMsg{session: session, err: err}
+	}
+}
+
+func (m Model) selectGuardAction() tea.Cmd {
+	actions := m.guardActions()
+	if len(actions) == 0 {
+		return nil
+	}
+
+	switch actions[m.guardCursor] {
+	case "Start Readonly Guard":
+		return m.startGuard(m.selectedGuardTTL())
+	case "Stop Guard":
+		return m.stopGuard()
+	default:
+		return m.loadGuardStatus
+	}
+}
+
+func (m Model) guardActions() []string {
+	if m.guardStatus != nil && m.guardStatus.Active {
+		return []string{"Stop Guard", "Refresh Status"}
+	}
+	return []string{"Start Readonly Guard", "Refresh Status"}
+}
+
+func (m Model) selectedGuardTTL() time.Duration {
+	if len(m.guardTTLOptions) == 0 {
+		return 30 * time.Minute
+	}
+	return m.guardTTLOptions[m.guardTTLIndex]
+}
+
+func tickGuardStatus() tea.Cmd {
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
+		return guardTickMsg(t)
+	})
+}
+
+func formatGuardDuration(value time.Duration) string {
+	if value <= 0 {
+		return "expired"
+	}
+	return value.Round(time.Second).String()
+}
+
 func Run() error {
 	config.Init()
-	p := tea.NewProgram(NewModel(), tea.WithAltScreen(), tea.WithMouseCellMotion())
-	_, err := p.Run()
+	model, err := NewModel()
+	if err != nil {
+		return err
+	}
+	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	_, err = p.Run()
 	return err
 }
 
 func RunWithConfig(kubeconfigPath string) error {
 	config.Init()
 	config.SetKubeconfigPath(kubeconfigPath)
-	p := tea.NewProgram(NewModel(), tea.WithAltScreen(), tea.WithMouseCellMotion())
-	_, err := p.Run()
+	model, err := NewModel()
+	if err != nil {
+		return err
+	}
+	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	_, err = p.Run()
 	return err
 }
