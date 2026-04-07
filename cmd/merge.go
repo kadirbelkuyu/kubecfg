@@ -7,11 +7,12 @@ import (
 )
 
 var mergeOutput string
+var mergeConflictStrategy string
 
 var mergeCmd = &cobra.Command{
 	Use:   "merge [files...]",
 	Short: "Merge kubeconfig files",
-	Long:  "Combine multiple kubeconfig files into one.",
+	Long:  "Combine multiple kubeconfig files into one.\nChoose how name conflicts are handled with --on-conflict: skip, overwrite, rename, fail.",
 	Args:  cobra.MinimumNArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
 		outputPath := mergeOutput
@@ -19,16 +20,17 @@ var mergeCmd = &cobra.Command{
 			outputPath = kubeconfigPath
 		}
 
-		if err := service.MergeConfigs(args, outputPath); err != nil {
+		if err := service.MergeConfigs(args, outputPath, mergeConflictStrategy); err != nil {
 			printError(err)
 			return
 		}
 
-		printSuccess(fmt.Sprintf("Merged %d configs into %s", len(args), outputPath))
+		printSuccess(fmt.Sprintf("Merged %d configs into %s using '%s' strategy", len(args), outputPath, mergeConflictStrategy))
 	},
 }
 
 func init() {
 	mergeCmd.Flags().StringVarP(&mergeOutput, "output", "o", "", "output file path")
+	mergeCmd.Flags().StringVar(&mergeConflictStrategy, "on-conflict", "skip", "conflict strategy: skip, overwrite, rename, fail")
 	rootCmd.AddCommand(mergeCmd)
 }
