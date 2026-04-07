@@ -283,22 +283,83 @@ func (s *Service) MergeConfigs(sourcePaths []string, outputPath string, strategy
 	return s.repo.Save(outputPath, merged)
 }
 
-func (s *Service) ValidateConfig(path string) error {
+func (s *Service) ValidateConfig(path string) (*ValidationReport, error) {
 	config, err := s.repo.Load(path)
 	if err != nil {
-		return err
+		return nil, err
+	}
+
+	report := &ValidationReport{
+		Path:         path,
+		ContextCount: len(config.Contexts),
+		ClusterCount: len(config.Clusters),
+		UserCount:    len(config.Users),
+	}
+
+	contextNames := make(map[string]struct{}, len(config.Contexts))
+	clusterNames := make(map[string]struct{}, len(config.Clusters))
+	userNames := make(map[string]struct{}, len(config.Users))
+
+	for _, cluster := range config.Clusters {
+		switch {
+		case cluster.Name == "":
+			report.Issues = append(report.Issues, ValidationIssue{Resource: "cluster", Message: "name is required"})
+		case hasDuplicate(clusterNames, cluster.Name):
+			report.Issues = append(report.Issues, ValidationIssue{Resource: "cluster", Name: cluster.Name, Message: "duplicate name"})
+		default:
+			clusterNames[cluster.Name] = struct{}{}
+		}
+
+		if cluster.Cluster.Server == "" {
+			report.Issues = append(report.Issues, ValidationIssue{Resource: "cluster", Name: cluster.Name, Message: "server is required"})
+		}
+	}
+
+	for _, user := range config.Users {
+		switch {
+		case user.Name == "":
+			report.Issues = append(report.Issues, ValidationIssue{Resource: "user", Message: "name is required"})
+		case hasDuplicate(userNames, user.Name):
+			report.Issues = append(report.Issues, ValidationIssue{Resource: "user", Name: user.Name, Message: "duplicate name"})
+		default:
+			userNames[user.Name] = struct{}{}
+		}
 	}
 
 	for _, ctx := range config.Contexts {
-		if _, idx := config.FindCluster(ctx.Context.Cluster); idx < 0 {
-			return fmt.Errorf("context %s references unknown cluster %s", ctx.Name, ctx.Context.Cluster)
+		switch {
+		case ctx.Name == "":
+			report.Issues = append(report.Issues, ValidationIssue{Resource: "context", Message: "name is required"})
+		case hasDuplicate(contextNames, ctx.Name):
+			report.Issues = append(report.Issues, ValidationIssue{Resource: "context", Name: ctx.Name, Message: "duplicate name"})
+		default:
+			contextNames[ctx.Name] = struct{}{}
 		}
-		if _, idx := config.FindUser(ctx.Context.User); idx < 0 {
-			return fmt.Errorf("context %s references unknown user %s", ctx.Name, ctx.Context.User)
+
+		if ctx.Context.Cluster == "" {
+			report.Issues = append(report.Issues, ValidationIssue{Resource: "context", Name: ctx.Name, Message: "cluster reference is required"})
+		} else if _, idx := config.FindCluster(ctx.Context.Cluster); idx < 0 {
+			report.Issues = append(report.Issues, ValidationIssue{Resource: "context", Name: ctx.Name, Message: fmt.Sprintf("references unknown cluster %q", ctx.Context.Cluster)})
+		}
+
+		if ctx.Context.User == "" {
+			report.Issues = append(report.Issues, ValidationIssue{Resource: "context", Name: ctx.Name, Message: "user reference is required"})
+		} else if _, idx := config.FindUser(ctx.Context.User); idx < 0 {
+			report.Issues = append(report.Issues, ValidationIssue{Resource: "context", Name: ctx.Name, Message: fmt.Sprintf("references unknown user %q", ctx.Context.User)})
 		}
 	}
 
-	return nil
+	if config.CurrentContext != "" {
+		if _, idx := config.FindContext(config.CurrentContext); idx < 0 {
+			report.Issues = append(report.Issues, ValidationIssue{
+				Resource: "config",
+				Name:     config.CurrentContext,
+				Message:  "current-context does not exist",
+			})
+		}
+	}
+
+	return report, nil
 }
 
 func (s *Service) ExportContext(targetPath, contextName, outputPath string) error {
@@ -412,7 +473,8 @@ func (s *Service) SearchContexts(targetPath, query string) ([]ContextInfo, error
 	for _, ctx := range contexts {
 		if strings.Contains(strings.ToLower(ctx.Name), query) ||
 			strings.Contains(strings.ToLower(ctx.Cluster), query) ||
-			strings.Contains(strings.ToLower(ctx.Server), query) {
+			strings.Contains(strings.ToLower(ctx.Server), query) ||
+			strings.Contains(strings.ToLower(ctx.Namespace), query) {
 			results = append(results, ctx)
 		}
 	}
