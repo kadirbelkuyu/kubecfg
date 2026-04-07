@@ -10,6 +10,7 @@ A CLI tool for managing Kubernetes kubeconfig files.
 - **Fast context switching** – Interactive TUI or direct commands, no more `kubectl config use-context`
 - **Namespace management** – Switch namespaces without remembering long `kubectl` flags
 - **Multi-config merge** – Combine kubeconfig files from different clusters into one
+- **Readonly guard sessions** – Route Kubernetes API traffic through a local proxy and block mutating requests
 
 ![kubecfg TUI](img/kubecfg.png)
 
@@ -100,7 +101,11 @@ Show current context info:
 kubecfg current
 ```
 
-## Features
+Start a readonly guard session:
+
+```bash
+kubecfg guard start --ttl 30m
+```
 
 - **Add** - Import kubeconfig files with custom context names
 - **List** - View all contexts with cluster details
@@ -109,6 +114,7 @@ kubecfg current
 - **Remove** - Delete contexts with confirmation
 - **Rename** - Change context names
 - **Merge** - Combine multiple kubeconfig files
+- **Guard** - Start temporary readonly sessions with TTL, generated kubeconfig, and local session state
 
 ## TUI Keys
 
@@ -117,6 +123,8 @@ kubecfg current
 | `↑` / `↓` / `k` / `j` | Navigate list |
 | `Enter` | Select item |
 | `/` | Start filtering |
+| `r` | Refresh guard status in Guard view |
+| `[` / `]` | Change guard TTL preset in Guard view |
 | `Esc` | Cancel / Go back |
 | `q` | Quit |
 
@@ -133,7 +141,8 @@ kubecfg/
 │   ├── remove.go           # Remove context
 │   ├── rename.go           # Rename context
 │   ├── merge.go            # Merge configs
-│   └── current.go          # Show current context
+│   ├── current.go          # Show current context
+│   └── guard.go            # Guard session commands
 ├── internal/
 │   ├── application/        # Business logic (Service layer)
 │   ├── domain/             # Domain models (KubeConfig, Context, Cluster)
@@ -234,12 +243,74 @@ kubecfg remove old-cluster --force  # skip confirmation
 kubecfg merge config1.yaml config2.yaml -o merged.yaml
 ```
 
+### Start a Guard Session
+
+Start a readonly guard session with a 30 minute TTL:
+
+```bash
+kubecfg guard start --ttl 30m
+```
+
+Example output includes:
+
+- Session ID
+- Proxy address
+- Generated kubeconfig path
+- Expiration time
+- `export KUBECONFIG=...` example
+
+Use the generated kubeconfig for readonly access:
+
+```bash
+export KUBECONFIG=/path/to/generated/config
+kubectl get pods -A
+```
+
+Mutating requests are blocked by the local proxy:
+
+```bash
+kubectl delete pod my-pod
+```
+
+Blocked request example:
+
+```text
+guard readonly mode blocked mutating request: DELETE /api/v1/namespaces/default/pods/my-pod
+```
+
+### Show Guard Status
+
+```bash
+kubecfg guard status
+```
+
+Status output includes the current session id, readonly mode, context, namespace, proxy address, generated kubeconfig path, and remaining TTL.
+
+### Stop a Guard Session
+
+```bash
+kubecfg guard stop
+```
+
+Stopping a session shuts down the local proxy and removes temporary guard artifacts.
+
+### Guard Session State
+
+kubecfg stores the active guard session on disk:
+
+```text
+~/.kubecfg/session.json
+```
+
+The generated guarded kubeconfig is temporary and points the selected cluster server to the local reverse proxy while preserving the original authentication settings.
+
 ## Flags
 
 | Flag | Description |
 |------|-------------|
 | `--kubeconfig` | Path to kubeconfig file (default: `~/.kube/config`) |
 | `-n, --namespace` | Set namespace for context (use without value for interactive selection) |
+| `--ttl` | Guard session TTL for `kubecfg guard start` (example: `30m`, `1h`) |
 
 ## Development
 
