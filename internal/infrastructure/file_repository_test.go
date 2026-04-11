@@ -71,3 +71,12 @@ func TestRestoreBackupCopiesBackupContent(t *testing.T) {
 		t.Fatalf("RestoreBackup() content = %q, want %q", string(data), "backup")
 	}
 }
+
+func TestGetDefaultPathPrefersKubeconfigEnv(t *testing.T) {
+	t.Setenv("KUBECONFIG", "/tmp/custom-kubeconfig")
+
+	repo := NewFileRepository()
+	if got := repo.GetDefaultPath(); got != "/tmp/custom-kubeconfig" {
+		t.Fatalf("GetDefaultPath() = %q, want %q", got, "/tmp/custom-kubeconfig")
+	}
+}

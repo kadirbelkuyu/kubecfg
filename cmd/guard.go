@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kadirbelkuyu/kubecfg/internal/application"
+	"github.com/kadirbelkuyu/kubecfg/internal/config"
 	"github.com/kadirbelkuyu/kubecfg/internal/domain"
 	"github.com/kadirbelkuyu/kubecfg/internal/infrastructure"
 	"github.com/kadirbelkuyu/kubecfg/internal/ui"
@@ -30,16 +31,21 @@ var guardStartCmd = &cobra.Command{
 	Short: "Start a readonly guard session",
 	Args:  cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
-		session, err := guardService.StartReadonly(application.GuardStartOptions{
+		if _, err := guardService.StartReadonly(application.GuardStartOptions{
 			SourcePath: kubeconfigPath,
 			TTL:        guardTTL,
-		})
+		}); err != nil {
+			printError(err)
+			return
+		}
+
+		status, err := guardService.Status()
 		if err != nil {
 			printError(err)
 			return
 		}
 
-		printGuardSession("Guard session started", session, "active")
+		printGuardStatus("Guard session started", status)
 	},
 }
 
@@ -73,12 +79,7 @@ var guardStatusCmd = &cobra.Command{
 			return
 		}
 
-		if status.Session == nil {
-			printInfo("No active guard session")
-			return
-		}
-
-		printGuardSession("Guard session status", status.Session, status.Health)
+		printGuardStatus("Guard session status", status)
 	},
 }
 
@@ -100,7 +101,8 @@ var guardProxyCmd = &cobra.Command{
 			return
 		}
 
-		proxy, err := infrastructure.NewGuardProxy(session, application.NewReadonlyRequestPolicy())
+		auditStore := infrastructure.NewAuditFileStore(config.GetAuditPath())
+		proxy, err := infrastructure.NewGuardProxy(session, application.NewReadonlyRequestPolicy(), auditStore)
 		if err != nil {
 			printError(err)
 			return
@@ -126,14 +128,15 @@ func init() {
 	rootCmd.AddCommand(guardCmd)
 }
 
-func printGuardSession(title string, session *domain.Session, health string) {
-	if session == nil {
-		printInfo("No active guard session")
+func printGuardStatus(title string, status *application.GuardStatus) {
+	if status == nil {
+		printInfo("Guard status unavailable")
 		return
 	}
 
+	session := status.Session
 	remaining := session.Remaining(time.Now())
-	if health == "expired" {
+	if session == nil || status.Health == "expired" {
 		remaining = 0
 	}
 
@@ -141,17 +144,33 @@ func printGuardSession(title string, session *domain.Session, health string) {
 
 	_, _ = fmt.Fprintf(&output, "\n  %s %s\n\n",
 		ui.IconInfo, ui.Header(strings.ToUpper(title)))
-	_, _ = fmt.Fprintf(&output, "  %s %s\n", ui.Label("Session ID:   "), ui.Value(session.ID))
-	_, _ = fmt.Fprintf(&output, "  %s %s\n", ui.Label("Mode:         "), ui.Value(session.ModeDisplay()))
-	_, _ = fmt.Fprintf(&output, "  %s %s\n", ui.Label("Health:       "), ui.Value(health))
-	_, _ = fmt.Fprintf(&output, "  %s %s\n", ui.Label("Context:      "), ui.ContextName(session.TargetContext))
-	_, _ = fmt.Fprintf(&output, "  %s %s\n", ui.Label("Namespace:    "), ui.Namespace(session.NamespaceDisplay()))
-	_, _ = fmt.Fprintf(&output, "  %s %s\n", ui.Label("Proxy:        "), ui.Server(session.ProxyListenAddress))
-	_, _ = fmt.Fprintf(&output, "  %s %s\n", ui.Label("Kubeconfig:   "), ui.Value(session.GeneratedKubeconfigPath))
-	_, _ = fmt.Fprintf(&output, "  %s %s\n", ui.Label("Started At:   "), ui.Value(session.StartedAt.Format(time.RFC3339)))
-	_, _ = fmt.Fprintf(&output, "  %s %s\n", ui.Label("Expires At:   "), ui.Value(session.ExpiresAt.Format(time.RFC3339)))
-	_, _ = fmt.Fprintf(&output, "  %s %s\n", ui.Label("Remaining:    "), ui.Value(formatDuration(remaining)))
-	_, _ = fmt.Fprintf(&output, "\n  %s %s\n", ui.Label("Export:       "), ui.Value("export KUBECONFIG="+session.GeneratedKubeconfigPath))
+	_, _ = fmt.Fprintf(&output, "  %s %s\n", ui.Label("Health:       "), ui.Value(status.Health))
+	if status.Detail != "" {
+		_, _ = fmt.Fprintf(&output, "  %s %s\n", ui.Label("Detail:       "), ui.Value(status.Detail))
+	}
+	if session != nil {
+		_, _ = fmt.Fprintf(&output, "  %s %s\n", ui.Label("Session ID:   "), ui.Value(session.ID))
+		_, _ = fmt.Fprintf(&output, "  %s %s\n", ui.Label("Mode:         "), ui.Value(session.ModeDisplay()))
+		_, _ = fmt.Fprintf(&output, "  %s %s\n", ui.Label("Context:      "), ui.ContextName(session.TargetContext))
+		_, _ = fmt.Fprintf(&output, "  %s %s\n", ui.Label("Namespace:    "), ui.Namespace(session.NamespaceDisplay()))
+		_, _ = fmt.Fprintf(&output, "  %s %s\n", ui.Label("Proxy:        "), ui.Server(session.ProxyListenAddress))
+		_, _ = fmt.Fprintf(&output, "  %s %s\n", ui.Label("Kubeconfig:   "), ui.Value(session.GeneratedKubeconfigPath))
+		_, _ = fmt.Fprintf(&output, "  %s %s\n", ui.Label("Started At:   "), ui.Value(session.StartedAt.Format(time.RFC3339)))
+		_, _ = fmt.Fprintf(&output, "  %s %s\n", ui.Label("Expires At:   "), ui.Value(session.ExpiresAt.Format(time.RFC3339)))
+		_, _ = fmt.Fprintf(&output, "  %s %s\n", ui.Label("Remaining:    "), ui.Value(formatDuration(remaining)))
+		_, _ = fmt.Fprintf(&output, "\n  %s %s\n", ui.Label("Export:       "), ui.Value("export KUBECONFIG="+session.GeneratedKubeconfigPath))
+	}
+
+	if len(status.RecentEvents) > 0 {
+		_, _ = fmt.Fprintf(&output, "\n  %s\n", ui.Label("Recent Events:"))
+		for _, event := range status.RecentEvents {
+			_, _ = fmt.Fprintf(&output, "  %s %s %s\n",
+				ui.Value(event.Timestamp.Format(time.RFC3339)),
+				ui.Value(string(event.Type)),
+				ui.Value(event.Message),
+			)
+		}
+	}
 
 	fmt.Println(output.String())
 }
