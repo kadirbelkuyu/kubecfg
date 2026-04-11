@@ -11,6 +11,7 @@ A CLI tool for managing Kubernetes kubeconfig files.
 - **Namespace management** – Switch namespaces without remembering long `kubectl` flags
 - **Multi-config merge** – Combine kubeconfig files from different clusters into one
 - **Readonly guard sessions** – Route Kubernetes API traffic through a local proxy and block mutating requests
+- **Audit trail** – Every guard session event is logged to disk; inspect it any time with `kubecfg audit tail`
 
 ![kubecfg TUI](img/kubecfg.png)
 
@@ -115,6 +116,7 @@ kubecfg guard start --ttl 30m
 - **Rename** - Change context names
 - **Merge** - Combine multiple kubeconfig files
 - **Guard** - Start temporary readonly sessions with TTL, generated kubeconfig, and local session state
+- **Audit** - Inspect guard session history with `kubecfg audit tail`
 
 ## TUI Keys
 
@@ -142,7 +144,8 @@ kubecfg/
 │   ├── rename.go           # Rename context
 │   ├── merge.go            # Merge configs
 │   ├── current.go          # Show current context
-│   └── guard.go            # Guard session commands
+│   ├── guard.go            # Guard session commands
+│   └── audit.go            # Audit log commands
 ├── internal/
 │   ├── application/        # Business logic (Service layer)
 │   ├── domain/             # Domain models (KubeConfig, Context, Cluster)
@@ -284,7 +287,7 @@ guard readonly mode blocked mutating request: DELETE /api/v1/namespaces/default/
 kubecfg guard status
 ```
 
-Status output includes the current session id, readonly mode, context, namespace, proxy address, generated kubeconfig path, and remaining TTL.
+Status output includes the current session id, readonly mode, context, namespace, proxy address, generated kubeconfig path, remaining TTL, and the most recent audit events for that session.
 
 ### Stop a Guard Session
 
@@ -293,6 +296,24 @@ kubecfg guard stop
 ```
 
 Stopping a session shuts down the local proxy and removes temporary guard artifacts.
+
+### View Audit Events
+
+Every guard session lifecycle event — start, stop, expiry, and blocked requests — is appended to an audit log at `~/.kubecfg/guard/audit.log`.
+
+Show the most recent events:
+
+```bash
+kubecfg audit tail
+```
+
+Limit the number of results:
+
+```bash
+kubecfg audit tail --limit 20
+```
+
+Each entry includes a timestamp, event type, session ID, context, namespace, and a short message. The log persists across sessions so you can review the history even after a session has ended.
 
 ### Guard Session State
 
@@ -311,6 +332,7 @@ The generated guarded kubeconfig is temporary and points the selected cluster se
 | `--kubeconfig` | Path to kubeconfig file (default: `~/.kube/config`) |
 | `-n, --namespace` | Set namespace for context (use without value for interactive selection) |
 | `--ttl` | Guard session TTL for `kubecfg guard start` (example: `30m`, `1h`) |
+| `--limit` | Number of recent events to show for `kubecfg audit tail` (default: `10`) |
 
 ## Development
 
