@@ -19,10 +19,13 @@ import (
 )
 
 type GuardProxy struct {
-	server *http.Server
+	server    *http.Server
+	auditSink domain.AuditStore
 }
 
-func NewGuardProxy(session *domain.Session, policy domain.GuardRequestPolicy) (*GuardProxy, error) {
+const guardHealthPath = "/.kubecfg/guard/healthz"
+
+func NewGuardProxy(session *domain.Session, policy domain.GuardRequestPolicy, auditSink domain.AuditStore) (*GuardProxy, error) {
 	if session == nil {
 		return nil, fmt.Errorf("session is required")
 	}
@@ -48,12 +51,34 @@ func NewGuardProxy(session *domain.Session, policy domain.GuardRequestPolicy) (*
 		Addr:              serverURL.Host,
 		ReadHeaderTimeout: 5 * time.Second,
 		Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			if request.URL.Path == guardHealthPath {
+				writer.WriteHeader(http.StatusOK)
+				_, _ = writer.Write([]byte("ok"))
+				return
+			}
+
 			if session.IsExpired(time.Now()) {
+				appendGuardAuditEvent(auditSink, domain.AuditEvent{
+					Type:      domain.AuditEventGuardSessionExpired,
+					SessionID: session.ID,
+					Context:   session.TargetContext,
+					Namespace: session.TargetNamespace,
+					Mode:      string(session.Mode),
+					Message:   "guard session expired while handling request",
+				})
 				http.Error(writer, "guard session expired", http.StatusForbidden)
 				return
 			}
 
 			if err := policy.Validate(request.Method, request.URL.RequestURI()); err != nil {
+				appendGuardAuditEvent(auditSink, domain.AuditEvent{
+					Type:      domain.AuditEventGuardRequestBlocked,
+					SessionID: session.ID,
+					Context:   session.TargetContext,
+					Namespace: session.TargetNamespace,
+					Mode:      string(session.Mode),
+					Message:   err.Error(),
+				})
 				http.Error(writer, err.Error(), http.StatusForbidden)
 				return
 			}
@@ -62,7 +87,7 @@ func NewGuardProxy(session *domain.Session, policy domain.GuardRequestPolicy) (*
 		}),
 	}
 
-	return &GuardProxy{server: server}, nil
+	return &GuardProxy{server: server, auditSink: auditSink}, nil
 }
 
 func (p *GuardProxy) Run() error {
@@ -104,4 +129,16 @@ func buildGuardTransport(sourcePath, contextName string) (*url.URL, http.RoundTr
 	}
 
 	return targetURL, transport, nil
+}
+
+func appendGuardAuditEvent(store domain.AuditStore, event domain.AuditEvent) {
+	if store == nil {
+		return
+	}
+
+	if event.Timestamp.IsZero() {
+		event.Timestamp = time.Now().UTC()
+	}
+
+	_ = store.Append(event)
 }
