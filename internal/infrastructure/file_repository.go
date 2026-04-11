@@ -138,6 +138,10 @@ func (r *FileRepository) Exists(path string) bool {
 }
 
 func (r *FileRepository) GetDefaultPath() string {
+	if envPath := os.Getenv("KUBECONFIG"); envPath != "" {
+		return envPath
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""

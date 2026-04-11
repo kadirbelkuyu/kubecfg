@@ -16,12 +16,14 @@ type GuardStartOptions struct {
 }
 
 type GuardStatus struct {
-	Session   *domain.Session
-	Active    bool
-	Running   bool
-	Expired   bool
-	Health    string
-	Remaining time.Duration
+	Session      *domain.Session
+	Active       bool
+	Running      bool
+	Expired      bool
+	Health       string
+	Detail       string
+	Remaining    time.Duration
+	RecentEvents []domain.AuditEvent
 }
 
 type GuardService struct {
@@ -29,6 +31,7 @@ type GuardService struct {
 	sessionSvc   *SessionService
 	writer       domain.GuardedKubeconfigWriter
 	runtime      domain.GuardRuntime
+	audit        *AuditService
 	artifactsDir string
 	defaultTTL   time.Duration
 	now          func() time.Time
@@ -39,6 +42,7 @@ func NewGuardService(
 	sessionSvc *SessionService,
 	writer domain.GuardedKubeconfigWriter,
 	runtime domain.GuardRuntime,
+	audit *AuditService,
 	artifactsDir string,
 	defaultTTL time.Duration,
 ) *GuardService {
@@ -47,6 +51,7 @@ func NewGuardService(
 		sessionSvc:   sessionSvc,
 		writer:       writer,
 		runtime:      runtime,
+		audit:        audit,
 		artifactsDir: artifactsDir,
 		defaultTTL:   defaultTTL,
 		now:          time.Now,
@@ -104,6 +109,14 @@ func (s *GuardService) StartReadonly(options GuardStartOptions) (*domain.Session
 	}
 
 	if err := s.runtime.Start(session); err != nil {
+		_ = s.recordAuditEvent(domain.AuditEvent{
+			Type:      domain.AuditEventGuardStartFailed,
+			SessionID: session.ID,
+			Context:   session.TargetContext,
+			Namespace: session.TargetNamespace,
+			Mode:      string(session.Mode),
+			Message:   fmt.Sprintf("failed to start readonly guard: %v", err),
+		})
 		_ = s.sessionSvc.Delete()
 		_ = s.writer.Cleanup(result.Path)
 		return nil, fmt.Errorf("start guard proxy: %w", err)
@@ -115,6 +128,15 @@ func (s *GuardService) StartReadonly(options GuardStartOptions) (*domain.Session
 		_ = s.writer.Cleanup(result.Path)
 		return nil, fmt.Errorf("save guard session pid: %w", err)
 	}
+
+	_ = s.recordAuditEvent(domain.AuditEvent{
+		Type:      domain.AuditEventGuardSessionStarted,
+		SessionID: session.ID,
+		Context:   session.TargetContext,
+		Namespace: session.TargetNamespace,
+		Mode:      string(session.Mode),
+		Message:   fmt.Sprintf("readonly guard started at %s", session.ProxyListenAddress),
+	})
 
 	return session, nil
 }
@@ -162,14 +184,16 @@ type SessionService struct {
 	store   domain.SessionStore
 	runtime domain.GuardRuntime
 	writer  domain.GuardedKubeconfigWriter
+	audit   *AuditService
 	now     func() time.Time
 }
 
-func NewSessionService(store domain.SessionStore, runtime domain.GuardRuntime, writer domain.GuardedKubeconfigWriter) *SessionService {
+func NewSessionService(store domain.SessionStore, runtime domain.GuardRuntime, writer domain.GuardedKubeconfigWriter, audit *AuditService) *SessionService {
 	return &SessionService{
 		store:   store,
 		runtime: runtime,
 		writer:  writer,
+		audit:   audit,
 		now:     time.Now,
 	}
 }
@@ -189,38 +213,61 @@ func (s *SessionService) Delete() error {
 }
 
 func (s *SessionService) Status() (*GuardStatus, error) {
+	recentEvents, err := s.recentAuditEvents()
+	if err != nil {
+		return nil, err
+	}
+
 	session, err := s.store.Load()
 	if err != nil {
 		if errors.Is(err, domain.ErrGuardSessionNotFound) {
-			return &GuardStatus{Health: "inactive"}, nil
+			return &GuardStatus{
+				Health:       "inactive",
+				Detail:       "no active guard session",
+				RecentEvents: recentEvents,
+			}, nil
 		}
 		return nil, fmt.Errorf("load session: %w", err)
 	}
 
 	now := s.now()
 	status := &GuardStatus{
-		Session:   session,
-		Health:    "inactive",
-		Remaining: session.Remaining(now),
+		Session:      session,
+		Health:       "inactive",
+		Detail:       "guard session loaded",
+		Remaining:    session.Remaining(now),
+		RecentEvents: recentEvents,
 	}
 
 	if session.IsExpired(now) {
 		status.Expired = true
 		status.Health = "expired"
+		status.Detail = "session ttl elapsed"
+		_ = s.recordAuditEvent(domain.AuditEvent{
+			Type:      domain.AuditEventGuardSessionExpired,
+			SessionID: session.ID,
+			Context:   session.TargetContext,
+			Namespace: session.TargetNamespace,
+			Mode:      string(session.Mode),
+			Message:   "guard session expired and was cleaned up",
+		})
 		if cleanupErr := s.cleanup(session); cleanupErr != nil {
 			return nil, cleanupErr
 		}
+		status.RecentEvents, _ = s.recentAuditEvents()
 		return status, nil
 	}
 
 	status.Running = s.runtime.IsRunning(session)
 	if !status.Running {
 		status.Health = "proxy stopped"
+		status.Detail = "guard proxy process is not running"
 		return status, nil
 	}
 
 	status.Active = true
 	status.Health = "active"
+	status.Detail = "guard proxy is ready"
 	return status, nil
 }
 
@@ -254,6 +301,15 @@ func (s *SessionService) Stop() (*domain.Session, error) {
 		return nil, err
 	}
 
+	_ = s.recordAuditEvent(domain.AuditEvent{
+		Type:      domain.AuditEventGuardSessionStopped,
+		SessionID: session.ID,
+		Context:   session.TargetContext,
+		Namespace: session.TargetNamespace,
+		Mode:      string(session.Mode),
+		Message:   "guard session stopped and artifacts cleaned up",
+	})
+
 	return session, nil
 }
 
@@ -272,6 +328,43 @@ func (s *SessionService) cleanup(session *domain.Session) error {
 
 	if err := s.store.Delete(); err != nil {
 		return fmt.Errorf("delete session: %w", err)
+	}
+
+	return nil
+}
+
+func (s *SessionService) recentAuditEvents() ([]domain.AuditEvent, error) {
+	if s.audit == nil {
+		return nil, nil
+	}
+
+	events, err := s.audit.Recent(defaultAuditRecentLimit)
+	if err != nil {
+		return nil, fmt.Errorf("load recent audit events: %w", err)
+	}
+
+	return events, nil
+}
+
+func (s *SessionService) recordAuditEvent(event domain.AuditEvent) error {
+	if s.audit == nil {
+		return nil
+	}
+
+	if err := s.audit.Record(event); err != nil {
+		return fmt.Errorf("record audit event: %w", err)
+	}
+
+	return nil
+}
+
+func (s *GuardService) recordAuditEvent(event domain.AuditEvent) error {
+	if s.audit == nil {
+		return nil
+	}
+
+	if err := s.audit.Record(event); err != nil {
+		return fmt.Errorf("record audit event: %w", err)
 	}
 
 	return nil
