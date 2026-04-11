@@ -71,14 +71,17 @@ func NewModel() (Model, error) {
 	if err != nil {
 		return Model{}, fmt.Errorf("create guard runtime: %w", err)
 	}
+	auditStore := infrastructure.NewAuditFileStore(config.GetAuditPath())
+	auditService := application.NewAuditService(auditStore, config.IsAuditEnabled())
 	guardWriter := infrastructure.NewGuardKubeconfigWriter()
 	sessionStore := infrastructure.NewSessionFileStore(config.GetGuardSessionPath())
-	sessionService := application.NewSessionService(sessionStore, runtime, guardWriter)
+	sessionService := application.NewSessionService(sessionStore, runtime, guardWriter, auditService)
 	guardService := application.NewGuardService(
 		repo,
 		sessionService,
 		guardWriter,
 		runtime,
+		auditService,
 		filepath.Join(config.GetGuardStateDir(), "guard"),
 		config.GetGuardDefaultTTL(),
 	)
@@ -989,6 +992,7 @@ func (m Model) viewGuard() string {
 	if m.guardStatus == nil || m.guardStatus.Session == nil {
 		b.WriteString(GuardPanelStyle.Render(strings.Join([]string{
 			"Status: inactive",
+			"Detail: no active guard session",
 			"Readonly session: not started",
 			"TTL preset: " + m.selectedGuardTTL().String(),
 			"Press enter on Start Readonly Guard to create a temporary guarded kubeconfig",
@@ -1002,6 +1006,7 @@ func (m Model) viewGuard() string {
 
 		summary := []string{
 			"Status: " + healthStyle.Render(m.guardStatus.Health),
+			"Detail: " + m.guardStatus.Detail,
 			"Mode: " + session.ModeDisplay(),
 			"Context: " + session.TargetContext,
 			"Namespace: " + session.NamespaceDisplay(),
@@ -1011,6 +1016,20 @@ func (m Model) viewGuard() string {
 			"Expires: " + session.ExpiresAt.Format(time.RFC3339),
 		}
 		b.WriteString(GuardPanelStyle.Render(strings.Join(summary, "\n")))
+	}
+
+	if m.guardStatus != nil && len(m.guardStatus.RecentEvents) > 0 {
+		recent := make([]string, 0, len(m.guardStatus.RecentEvents)+1)
+		recent = append(recent, "Recent Events:")
+		for _, event := range m.guardStatus.RecentEvents {
+			recent = append(recent, fmt.Sprintf("%s | %s | %s",
+				event.Timestamp.Format("15:04:05"),
+				event.Type,
+				event.Message,
+			))
+		}
+		b.WriteString("\n\n")
+		b.WriteString(GuardPanelStyle.Render(strings.Join(recent, "\n")))
 	}
 
 	b.WriteString("\n\n")

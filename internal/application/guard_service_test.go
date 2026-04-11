@@ -108,6 +108,32 @@ func (w *guardWriter) Cleanup(outputPath string) error {
 	return nil
 }
 
+type guardAuditStore struct {
+	events []domain.AuditEvent
+}
+
+func (s *guardAuditStore) Append(event domain.AuditEvent) error {
+	s.events = append(s.events, event)
+	return nil
+}
+
+func (s *guardAuditStore) ListRecent(limit int) ([]domain.AuditEvent, error) {
+	if limit <= 0 || len(s.events) == 0 {
+		return nil, nil
+	}
+
+	if limit > len(s.events) {
+		limit = len(s.events)
+	}
+
+	events := make([]domain.AuditEvent, 0, limit)
+	for index := len(s.events) - 1; index >= len(s.events)-limit; index-- {
+		events = append(events, s.events[index])
+	}
+
+	return events, nil
+}
+
 func TestGuardSessionLifecycle(t *testing.T) {
 	now := time.Date(2026, 4, 7, 10, 0, 0, 0, time.UTC)
 	repo := &guardRepo{
@@ -128,9 +154,12 @@ func TestGuardSessionLifecycle(t *testing.T) {
 	store := &guardStore{}
 	runtime := &guardRuntime{address: "http://127.0.0.1:41001"}
 	writer := &guardWriter{}
-	sessionService := NewSessionService(store, runtime, writer)
+	auditStore := &guardAuditStore{}
+	auditService := NewAuditService(auditStore, true)
+	auditService.now = func() time.Time { return now }
+	sessionService := NewSessionService(store, runtime, writer, auditService)
 	sessionService.now = func() time.Time { return now }
-	guardService := NewGuardService(repo, sessionService, writer, runtime, "/tmp/guard", 30*time.Minute)
+	guardService := NewGuardService(repo, sessionService, writer, runtime, auditService, "/tmp/guard", 30*time.Minute)
 	guardService.now = func() time.Time { return now }
 
 	session, err := guardService.StartReadonly(GuardStartOptions{
@@ -170,6 +199,14 @@ func TestGuardSessionLifecycle(t *testing.T) {
 		t.Fatalf("Status() remaining = %v, want %v", status.Remaining, 30*time.Minute)
 	}
 
+	if status.Detail != "guard proxy is ready" {
+		t.Fatalf("Status() detail = %q, want %q", status.Detail, "guard proxy is ready")
+	}
+
+	if len(status.RecentEvents) == 0 || status.RecentEvents[0].Type != domain.AuditEventGuardSessionStarted {
+		t.Fatalf("Status() recent events = %+v, want started event", status.RecentEvents)
+	}
+
 	stopped, err := guardService.Stop()
 	if err != nil {
 		t.Fatalf("Stop() error = %v", err)
@@ -195,6 +232,10 @@ func TestGuardSessionLifecycle(t *testing.T) {
 	if status.Session != nil || status.Active {
 		t.Fatalf("Status() after stop = %+v, want no session", status)
 	}
+
+	if len(status.RecentEvents) == 0 || status.RecentEvents[0].Type != domain.AuditEventGuardSessionStopped {
+		t.Fatalf("Status() after stop recent events = %+v, want stopped event", status.RecentEvents)
+	}
 }
 
 func TestGuardStatusCleansExpiredSession(t *testing.T) {
@@ -211,7 +252,10 @@ func TestGuardStatusCleansExpiredSession(t *testing.T) {
 	}
 	runtime := &guardRuntime{running: true}
 	writer := &guardWriter{}
-	sessionService := NewSessionService(store, runtime, writer)
+	auditStore := &guardAuditStore{}
+	auditService := NewAuditService(auditStore, true)
+	auditService.now = func() time.Time { return now }
+	sessionService := NewSessionService(store, runtime, writer, auditService)
 	sessionService.now = func() time.Time { return now }
 
 	status, err := sessionService.Status()
@@ -221,6 +265,10 @@ func TestGuardStatusCleansExpiredSession(t *testing.T) {
 
 	if !status.Expired || status.Health != "expired" {
 		t.Fatalf("Status() = %+v, want expired status", status)
+	}
+
+	if status.Detail != "session ttl elapsed" {
+		t.Fatalf("Status() detail = %q, want %q", status.Detail, "session ttl elapsed")
 	}
 
 	if store.session != nil {
@@ -233,6 +281,10 @@ func TestGuardStatusCleansExpiredSession(t *testing.T) {
 
 	if writer.cleanupCount != 1 {
 		t.Fatalf("Status() cleanup count = %d, want 1", writer.cleanupCount)
+	}
+
+	if len(auditStore.events) == 0 || auditStore.events[0].Type != domain.AuditEventGuardSessionExpired {
+		t.Fatalf("Status() audit events = %+v, want expired event", auditStore.events)
 	}
 }
 
@@ -265,9 +317,12 @@ func TestGuardStartReplacesExpiredSession(t *testing.T) {
 	}
 	runtime := &guardRuntime{address: "http://127.0.0.1:41002", running: true}
 	writer := &guardWriter{}
-	sessionService := NewSessionService(store, runtime, writer)
+	auditStore := &guardAuditStore{}
+	auditService := NewAuditService(auditStore, true)
+	auditService.now = func() time.Time { return now }
+	sessionService := NewSessionService(store, runtime, writer, auditService)
 	sessionService.now = func() time.Time { return now }
-	guardService := NewGuardService(repo, sessionService, writer, runtime, "/tmp/guard", 45*time.Minute)
+	guardService := NewGuardService(repo, sessionService, writer, runtime, auditService, "/tmp/guard", 45*time.Minute)
 	guardService.now = func() time.Time { return now }
 
 	session, err := guardService.StartReadonly(GuardStartOptions{

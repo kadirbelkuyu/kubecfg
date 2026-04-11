@@ -32,19 +32,22 @@ var rootCmd = &cobra.Command{
 			printError(err)
 			os.Exit(1)
 		}
+		auditStore := infrastructure.NewAuditFileStore(config.GetAuditPath())
+		auditService := application.NewAuditService(auditStore, config.IsAuditEnabled())
 		sessionStore := infrastructure.NewSessionFileStore(config.GetGuardSessionPath())
 		kubeconfigWriter := infrastructure.NewGuardKubeconfigWriter()
-		sessionService := application.NewSessionService(sessionStore, runtime, kubeconfigWriter)
+		sessionService := application.NewSessionService(sessionStore, runtime, kubeconfigWriter, auditService)
 		guardService = application.NewGuardService(
 			repo,
 			sessionService,
 			kubeconfigWriter,
 			runtime,
+			auditService,
 			filepath.Join(config.GetGuardStateDir(), "guard"),
 			config.GetGuardDefaultTTL(),
 		)
 		if kubeconfigPath == "" {
-			kubeconfigPath = service.GetDefaultPath()
+			kubeconfigPath = config.GetKubeconfigPath()
 		}
 		config.SetKubeconfigPath(kubeconfigPath)
 	},

@@ -22,6 +22,8 @@ func Init() {
 	v.SetDefault("guard.state_dir", getDefaultGuardStateDir())
 	v.SetDefault("guard.session_path", filepath.Join(getDefaultGuardStateDir(), "session.json"))
 	v.SetDefault("guard.default_ttl", "30m")
+	v.SetDefault("audit.enabled", true)
+	v.SetDefault("audit.path", filepath.Join(getDefaultGuardStateDir(), "audit.log"))
 }
 
 func getDefaultKubeconfigPath() string {
@@ -61,6 +63,14 @@ func GetGuardDefaultTTL() time.Duration {
 		return 30 * time.Minute
 	}
 	return ttl
+}
+
+func IsAuditEnabled() bool {
+	return v.GetBool("audit.enabled")
+}
+
+func GetAuditPath() string {
+	return v.GetString("audit.path")
 }
 
 func getDefaultGuardStateDir() string {
