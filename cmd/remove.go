@@ -6,8 +6,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/kadirbelkuyu/kubecfg/internal/ui"
 	"github.com/spf13/cobra"
+
+	"github.com/kadirbelkuyu/kubecfg/internal/ui"
 )
 
 var removeForce bool
@@ -26,7 +27,7 @@ var removeCmd = &cobra.Command{
 			response, _ := reader.ReadString('\n')
 			response = strings.TrimSpace(strings.ToLower(response))
 			if response != "y" && response != "yes" {
-				printSuccess("Cancelled")
+				printSuccess("Canceled")
 				return
 			}
 		}

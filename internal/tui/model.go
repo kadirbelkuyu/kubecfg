@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
 	"github.com/kadirbelkuyu/kubecfg/internal/application"
 	"github.com/kadirbelkuyu/kubecfg/internal/config"
 	"github.com/kadirbelkuyu/kubecfg/internal/domain"
@@ -769,7 +770,7 @@ func (m Model) renderHeader() string {
 		"#FFFFFF", "#DDDDDD", "#BBBBBB", "#999999", "#777777", "#555555",
 	}
 
-	var renderedLines []string
+	renderedLines := make([]string, 0, len(lines))
 	for i, line := range lines {
 		style := lipgloss.NewStyle().Foreground(gradientColors[i]).Bold(true)
 		renderedLines = append(renderedLines, style.Render(line))
@@ -913,13 +914,14 @@ func (m Model) viewContextList() string {
 		ctx := m.filteredCtx[i]
 		line := m.formatContextLine(ctx)
 
-		if i == m.contextCursor {
+		switch {
+		case i == m.contextCursor:
 			cursor := SelectedItemStyle.Render(IconCurrent)
 			_, _ = fmt.Fprintf(&b, " %s %s\n", cursor, line)
-		} else if ctx.Current {
+		case ctx.Current:
 			marker := CurrentMarkerStyle.Render(IconCheck)
 			_, _ = fmt.Fprintf(&b, " %s %s\n", marker, line)
-		} else {
+		default:
 			_, _ = fmt.Fprintf(&b, "   %s\n", line)
 		}
 	}

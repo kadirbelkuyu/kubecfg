@@ -3,8 +3,9 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/kadirbelkuyu/kubecfg/internal/ui"
 	"github.com/spf13/cobra"
+
+	"github.com/kadirbelkuyu/kubecfg/internal/ui"
 )
 
 var exportOutput string

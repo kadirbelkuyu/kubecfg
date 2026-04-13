@@ -7,10 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/spf13/cobra"
+
 	"github.com/kadirbelkuyu/kubecfg/internal/application"
 	"github.com/kadirbelkuyu/kubecfg/internal/domain"
 	"github.com/kadirbelkuyu/kubecfg/internal/ui"
-	"github.com/spf13/cobra"
 )
 
 var (
@@ -58,7 +59,7 @@ var undoCmd = &cobra.Command{
 		}
 
 		if !undoForce && !confirmRestore(selected.Name) {
-			printSuccess("Cancelled")
+			printSuccess("Canceled")
 			return
 		}
 
