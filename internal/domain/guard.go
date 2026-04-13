@@ -4,6 +4,7 @@ type GuardMode string
 
 const (
 	GuardModeReadonly GuardMode = "readonly"
+	GuardModePolicy   GuardMode = "policy"
 )
 
 type GuardRequestPolicy interface {

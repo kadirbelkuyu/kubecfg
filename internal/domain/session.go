@@ -6,17 +6,18 @@ import (
 )
 
 type Session struct {
-	ID                      string    `json:"id"`
-	StartedAt               time.Time `json:"started_at"`
-	ExpiresAt               time.Time `json:"expires_at"`
-	Readonly                bool      `json:"readonly"`
-	Mode                    GuardMode `json:"mode,omitempty"`
-	SourceKubeconfigPath    string    `json:"source_kubeconfig_path"`
-	GeneratedKubeconfigPath string    `json:"generated_kubeconfig_path"`
-	ProxyListenAddress      string    `json:"proxy_listen_address"`
-	TargetContext           string    `json:"target_context"`
-	TargetNamespace         string    `json:"target_namespace,omitempty"`
-	ProxyPID                int       `json:"proxy_pid,omitempty"`
+	ID                      string        `json:"id"`
+	StartedAt               time.Time     `json:"started_at"`
+	ExpiresAt               time.Time     `json:"expires_at"`
+	Readonly                bool          `json:"readonly"`
+	Mode                    GuardMode     `json:"mode,omitempty"`
+	PolicyName              PolicyProfile `json:"policy_name,omitempty"`
+	SourceKubeconfigPath    string        `json:"source_kubeconfig_path"`
+	GeneratedKubeconfigPath string        `json:"generated_kubeconfig_path"`
+	ProxyListenAddress      string        `json:"proxy_listen_address"`
+	TargetContext           string        `json:"target_context"`
+	TargetNamespace         string        `json:"target_namespace,omitempty"`
+	ProxyPID                int           `json:"proxy_pid,omitempty"`
 }
 
 func (s *Session) IsExpired(now time.Time) bool {
@@ -43,6 +44,9 @@ func (s *Session) NamespaceDisplay() string {
 func (s *Session) ModeDisplay() string {
 	if s == nil {
 		return ""
+	}
+	if s.PolicyName != "" {
+		return s.PolicyName
 	}
 	if s.Readonly || s.Mode == GuardModeReadonly {
 		return "Readonly"

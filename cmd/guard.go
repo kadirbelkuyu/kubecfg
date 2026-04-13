@@ -15,9 +15,11 @@ import (
 )
 
 var (
-	guardTTL       time.Duration
-	guardProxyID   string
-	guardProxyPath string
+	guardTTL        time.Duration
+	guardProfile    string
+	guardPolicyFlag string // --policy, alias for --profile
+	guardProxyID    string
+	guardProxyPath  string
 )
 
 var guardCmd = &cobra.Command{
@@ -28,15 +30,29 @@ var guardCmd = &cobra.Command{
 
 var guardStartCmd = &cobra.Command{
 	Use:   "start",
-	Short: "Start a readonly guard session",
+	Short: "Start a guarded Kubernetes session",
 	Args:  cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
-		if _, err := guardService.StartReadonly(application.GuardStartOptions{
+		// --policy is an alias for --profile; --profile takes precedence when both are given.
+		profile := guardProfile
+		if profile == "" {
+			profile = guardPolicyFlag
+		}
+
+		session, err := guardService.StartReadonly(application.GuardStartOptions{
 			SourcePath: kubeconfigPath,
 			TTL:        guardTTL,
-		}); err != nil {
+			Profile:    profile,
+		})
+		if err != nil {
 			printError(err)
 			return
+		}
+
+		if profile != "" {
+			if p, ferr := policyService.GetPolicy(profile); ferr == nil && p.MatchesContext(session.TargetContext) {
+				printWarning(fmt.Sprintf("context %q matches warn patterns for profile %q — proceed with caution", session.TargetContext, profile))
+			}
 		}
 
 		status, err := guardService.Status()
@@ -102,7 +118,7 @@ var guardProxyCmd = &cobra.Command{
 		}
 
 		auditStore := infrastructure.NewAuditFileStore(config.GetAuditPath())
-		proxy, err := infrastructure.NewGuardProxy(session, application.NewReadonlyRequestPolicy(), auditStore)
+		proxy, err := infrastructure.NewGuardProxy(session, policyForSession(session), auditStore)
 		if err != nil {
 			printError(err)
 			return
@@ -116,6 +132,8 @@ var guardProxyCmd = &cobra.Command{
 
 func init() {
 	guardStartCmd.Flags().DurationVar(&guardTTL, "ttl", 0, "guard session ttl, for example 30m or 1h")
+	guardStartCmd.Flags().StringVar(&guardProfile, "profile", "", "policy profile to apply (prod, staging, debug)")
+	guardStartCmd.Flags().StringVar(&guardPolicyFlag, "policy", "", "policy profile to apply (alias for --profile)")
 	guardProxyCmd.Flags().StringVar(&guardProxyID, "session-id", "", "guard session id")
 	guardProxyCmd.Flags().StringVar(&guardProxyPath, "session-file", "", "guard session file path")
 	_ = guardProxyCmd.Flags().MarkHidden("session-id")
@@ -126,6 +144,15 @@ func init() {
 	guardCmd.AddCommand(guardStatusCmd)
 	guardCmd.AddCommand(guardProxyCmd)
 	rootCmd.AddCommand(guardCmd)
+}
+
+func policyForSession(session *domain.Session) domain.GuardRequestPolicy {
+	if session.PolicyName != "" {
+		if p, err := policyService.GetPolicy(session.PolicyName); err == nil {
+			return application.NewPolicyRequestPolicy(p)
+		}
+	}
+	return application.NewReadonlyRequestPolicy()
 }
 
 func printGuardStatus(title string, status *application.GuardStatus) {
@@ -151,6 +178,9 @@ func printGuardStatus(title string, status *application.GuardStatus) {
 	if session != nil {
 		_, _ = fmt.Fprintf(&output, "  %s %s\n", ui.Label("Session ID:   "), ui.Value(session.ID))
 		_, _ = fmt.Fprintf(&output, "  %s %s\n", ui.Label("Mode:         "), ui.Value(session.ModeDisplay()))
+		if session.PolicyName != "" {
+			_, _ = fmt.Fprintf(&output, "  %s %s\n", ui.Label("Profile:      "), ui.Value(session.PolicyName))
+		}
 		_, _ = fmt.Fprintf(&output, "  %s %s\n", ui.Label("Context:      "), ui.ContextName(session.TargetContext))
 		_, _ = fmt.Fprintf(&output, "  %s %s\n", ui.Label("Namespace:    "), ui.Namespace(session.NamespaceDisplay()))
 		_, _ = fmt.Fprintf(&output, "  %s %s\n", ui.Label("Proxy:        "), ui.Server(session.ProxyListenAddress))
