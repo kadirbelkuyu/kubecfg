@@ -136,10 +136,13 @@ type MenuItem struct {
 	Label string
 }
 
+const IconPolicy = "§"
+
 var MenuItems = []MenuItem{
 	{Icon: IconSwitch, Label: "Switch Context"},
 	{Icon: IconNamespace, Label: "Set Namespace"},
 	{Icon: IconGuard, Label: "Guard"},
+	{Icon: IconPolicy, Label: "Policies"},
 	{Icon: IconAdd, Label: "Add Context"},
 	{Icon: IconRename, Label: "Rename Context"},
 	{Icon: IconRemove, Label: "Remove Context"},
