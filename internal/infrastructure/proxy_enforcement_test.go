@@ -57,7 +57,7 @@ func TestProxyBlockedResourcesBlocked(t *testing.T) {
 			if err != nil {
 				t.Fatalf("do request: %v", err)
 			}
-			resp.Body.Close()
+			t.Cleanup(func() { _ = resp.Body.Close() })
 			if resp.StatusCode != tt.want {
 				t.Fatalf("status = %d, want %d", resp.StatusCode, tt.want)
 			}
@@ -99,7 +99,7 @@ func TestProxyAllowedNamespacesEnforcement(t *testing.T) {
 			if err != nil {
 				t.Fatalf("do request: %v", err)
 			}
-			resp.Body.Close()
+			t.Cleanup(func() { _ = resp.Body.Close() })
 			if resp.StatusCode != tt.want {
 				t.Fatalf("status = %d, want %d", resp.StatusCode, tt.want)
 			}
@@ -190,7 +190,7 @@ func TestProxyReadonlyBlocksMutating(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			resp.Body.Close()
+			t.Cleanup(func() { _ = resp.Body.Close() })
 			if resp.StatusCode != http.StatusOK {
 				t.Fatalf("%s: status = %d, want 200", method, resp.StatusCode)
 			}
@@ -204,7 +204,7 @@ func TestProxyReadonlyBlocksMutating(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			resp.Body.Close()
+			t.Cleanup(func() { _ = resp.Body.Close() })
 			if resp.StatusCode != http.StatusForbidden {
 				t.Fatalf("%s: status = %d, want 403", method, resp.StatusCode)
 			}

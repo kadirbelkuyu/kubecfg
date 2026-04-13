@@ -97,9 +97,9 @@ func viewPolicyDetail(p *domain.Policy, isUserDefined bool) string {
 	b.WriteString("\n " + title + "\n\n")
 
 	field := func(label, value string) {
-		b.WriteString(fmt.Sprintf("  %s %s\n",
+		fmt.Fprintf(&b, "  %s %s\n",
 			DimItemStyle.Render(fmt.Sprintf("%-22s", label)),
-			NormalItemStyle.Render(value)))
+			NormalItemStyle.Render(value))
 	}
 
 	if p.Description != "" {
