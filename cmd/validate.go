@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/spf13/cobra"
+
 	"github.com/kadirbelkuyu/kubecfg/internal/domain"
 	"github.com/kadirbelkuyu/kubecfg/internal/ui"
-	"github.com/spf13/cobra"
 )
 
 var validateCmd = &cobra.Command{
