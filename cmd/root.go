@@ -17,6 +17,7 @@ var (
 	kubeconfigPath string
 	service        *application.Service
 	guardService   *application.GuardService
+	policyService  *application.PolicyService
 )
 
 var rootCmd = &cobra.Command{
@@ -25,6 +26,7 @@ var rootCmd = &cobra.Command{
 	Long:  "Add, remove, merge and switch between Kubernetes contexts.\n\nRun without arguments to launch the interactive TUI.",
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		config.Init()
+		policyService = application.NewPolicyService(config.GetProfiles())
 		repo := infrastructure.NewFileRepository()
 		service = application.NewService(repo)
 		runtime, err := infrastructure.NewGuardProcessRuntime("", config.GetGuardSessionPath())
