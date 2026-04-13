@@ -16,6 +16,12 @@ var (
 	currentColor  = lipgloss.Color("#89B4FA")
 	headerColor   = lipgloss.Color("#CBA6F7")
 	borderColor   = lipgloss.Color("#45475A")
+
+	// Policy profile accent colors.
+	policyProdColor    = lipgloss.Color("#F59E0B") // amber/orange — prod
+	policyStagingColor = lipgloss.Color("#EAB308") // yellow       — staging
+	policyDebugColor   = lipgloss.Color("#22C55E") // green        — debug
+	policyBuiltinColor = lipgloss.Color("#6C7086") // muted gray   — builtin badge
 )
 
 const (
@@ -150,4 +156,28 @@ func Value(text string) string {
 
 func Border(content string) string {
 	return BorderStyle.Render(content)
+}
+
+// PolicyProfileName renders a profile name with a color that matches its risk level.
+func PolicyProfileName(name string) string {
+	switch name {
+	case "prod":
+		return lipgloss.NewStyle().Foreground(policyProdColor).Bold(true).Render(name)
+	case "staging":
+		return lipgloss.NewStyle().Foreground(policyStagingColor).Bold(true).Render(name)
+	case "debug":
+		return lipgloss.NewStyle().Foreground(policyDebugColor).Bold(true).Render(name)
+	default:
+		return lipgloss.NewStyle().Foreground(primaryColor).Bold(true).Render(name)
+	}
+}
+
+// BuiltinBadge returns a muted "[builtin]" badge.
+func BuiltinBadge() string {
+	return lipgloss.NewStyle().Foreground(policyBuiltinColor).Render("[builtin]")
+}
+
+// UserDefinedBadge returns a primary-accented "[user]" badge.
+func UserDefinedBadge() string {
+	return lipgloss.NewStyle().Foreground(primaryColor).Bold(true).Render("[user]")
 }
