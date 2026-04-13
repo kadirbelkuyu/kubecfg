@@ -141,4 +141,5 @@ func appendGuardAuditEvent(store domain.AuditStore, event domain.AuditEvent) {
 	}
 
 	_ = store.Append(event)
+	
 }
