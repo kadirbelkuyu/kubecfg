@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/kadirbelkuyu/kubecfg/internal/infrastructure"
-	"github.com/kadirbelkuyu/kubecfg/internal/ui"
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
+
+	"github.com/kadirbelkuyu/kubecfg/internal/infrastructure"
+	"github.com/kadirbelkuyu/kubecfg/internal/ui"
 )
 
 var nsCmd = &cobra.Command{

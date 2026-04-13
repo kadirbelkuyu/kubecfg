@@ -6,12 +6,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/kadirbelkuyu/kubecfg/internal/application"
 	"github.com/kadirbelkuyu/kubecfg/internal/config"
 	"github.com/kadirbelkuyu/kubecfg/internal/domain"
 	"github.com/kadirbelkuyu/kubecfg/internal/infrastructure"
 	"github.com/kadirbelkuyu/kubecfg/internal/ui"
-	"github.com/spf13/cobra"
 )
 
 var (

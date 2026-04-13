@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/manifoldco/promptui"
+	"github.com/spf13/cobra"
+
 	"github.com/kadirbelkuyu/kubecfg/internal/application"
 	"github.com/kadirbelkuyu/kubecfg/internal/infrastructure"
 	"github.com/kadirbelkuyu/kubecfg/internal/ui"
-	"github.com/manifoldco/promptui"
-	"github.com/spf13/cobra"
 )
 
 const interactiveNamespaceValue = "__interactive__"
@@ -57,7 +58,7 @@ func resolveContextName(args []string) string {
 }
 
 func selectContextInteractive(contexts []application.ContextInfo) string {
-	var items []string
+	items := make([]string, 0, len(contexts))
 	var currentIdx int
 	for i, ctx := range contexts {
 		items = append(items, ctx.Name)

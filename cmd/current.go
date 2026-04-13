@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kadirbelkuyu/kubecfg/internal/ui"
 	"github.com/spf13/cobra"
+
+	"github.com/kadirbelkuyu/kubecfg/internal/ui"
 )
 
 var currentCmd = &cobra.Command{

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
 	"github.com/kadirbelkuyu/kubecfg/internal/domain"
 )
 
