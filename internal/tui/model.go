@@ -26,6 +26,7 @@ const (
 	ViewRenameContext
 	ViewRemoveConfirm
 	ViewGuard
+	ViewPolicy
 )
 
 type InputMode int
@@ -40,6 +41,7 @@ const (
 type Model struct {
 	service         *application.Service
 	guardService    *application.GuardService
+	policyService   *application.PolicyService
 	currentView     View
 	menuCursor      int
 	contexts        []application.ContextInfo
@@ -62,6 +64,10 @@ type Model struct {
 	guardCursor     int
 	guardTTLIndex   int
 	guardTTLOptions []time.Duration
+	// policy view state
+	policies        []domain.Policy
+	policyCursor    int
+	policyUserFlags map[string]bool // name → true if user-defined
 }
 
 func NewModel() (Model, error) {
@@ -95,15 +101,19 @@ func NewModel() (Model, error) {
 	input.CharLimit = 100
 	input.Width = 40
 
+	policySvc := application.NewPolicyService(config.GetProfiles())
+
 	return Model{
 		service:         service,
 		guardService:    guardService,
+		policyService:   policySvc,
 		currentView:     ViewMenu,
 		menuCursor:      0,
 		filterInput:     ti,
 		textInput:       input,
 		guardTTLOptions: []time.Duration{15 * time.Minute, 30 * time.Minute, time.Hour, 2 * time.Hour},
 		guardTTLIndex:   1,
+		policyUserFlags: make(map[string]bool),
 	}, nil
 }
 
@@ -160,6 +170,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateRemoveConfirm(msg)
 		case ViewGuard:
 			return m.updateGuard(msg)
+		case ViewPolicy:
+			return m.updatePolicy(msg)
 		}
 
 	case tea.WindowSizeMsg:
@@ -251,6 +263,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.guardStatus != nil && m.guardStatus.Active {
 			return m, m.loadGuardStatus
 		}
+		return m, nil
+
+	case policiesLoadedMsg:
+		if msg.err != nil {
+			m.errorMessage = msg.err.Error()
+			return m, nil
+		}
+		m.policies = msg.policies
+		m.policyUserFlags = msg.policyUserFlags
 		return m, nil
 
 	case tea.MouseMsg:
@@ -473,6 +494,10 @@ func (m Model) selectMenuItem() (tea.Model, tea.Cmd) {
 		m.currentView = ViewGuard
 		m.guardCursor = 0
 		return m, m.loadGuardStatus
+	case "Policies":
+		m.currentView = ViewPolicy
+		m.policyCursor = 0
+		return m, m.loadPolicies
 	case "Add Context":
 		m.currentView = ViewAddContext
 		m.inputMode = InputFilePath
@@ -609,6 +634,37 @@ func (m Model) updateGuard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) updatePolicy(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, Keys.Up):
+		if m.policyCursor > 0 {
+			m.policyCursor--
+		}
+	case key.Matches(msg, Keys.Down):
+		if m.policyCursor < len(m.policies)-1 {
+			m.policyCursor++
+		}
+	case key.Matches(msg, Keys.Refresh):
+		return m, m.loadPolicies
+	}
+	return m, nil
+}
+
+func (m Model) viewPolicies() string {
+	var b strings.Builder
+
+	b.WriteString(viewPolicyList(m.policies, m.policyUserFlags, m.policyCursor))
+
+	if len(m.policies) > 0 && m.policyCursor < len(m.policies) {
+		p := m.policies[m.policyCursor]
+		isUser := m.policyUserFlags[p.Name]
+		b.WriteString("\n")
+		b.WriteString(viewPolicyDetail(&p, isUser))
+	}
+
+	return b.String()
+}
+
 func (m Model) updateNamespaceSelector(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, Keys.Up):
@@ -667,6 +723,8 @@ func (m Model) View() string {
 		content.WriteString(m.viewRemoveConfirm())
 	case ViewGuard:
 		content.WriteString(m.viewGuard())
+	case ViewPolicy:
+		content.WriteString(m.viewPolicies())
 	}
 
 	if m.errorMessage != "" {
@@ -752,6 +810,9 @@ func (m Model) renderHelp() string {
 		addKey("enter", "select")
 		addKey("r", "refresh")
 		addKey("[ ]", "ttl")
+		addKey("esc", "back")
+	case ViewPolicy:
+		addKey("r", "refresh")
 		addKey("esc", "back")
 	}
 
@@ -1093,6 +1154,24 @@ type guardStoppedMsg struct {
 }
 
 type guardTickMsg time.Time
+
+type policiesLoadedMsg struct {
+	policies        []domain.Policy
+	policyUserFlags map[string]bool
+	err             error
+}
+
+func (m Model) loadPolicies() tea.Msg {
+	policies := m.policyService.ListPolicies()
+	userProfiles := config.GetProfiles()
+	flags := make(map[string]bool, len(policies))
+	for _, p := range policies {
+		if _, ok := userProfiles[p.Name]; ok {
+			flags[p.Name] = true
+		}
+	}
+	return policiesLoadedMsg{policies: policies, policyUserFlags: flags}
+}
 
 func (m Model) loadContexts() tea.Msg {
 	kubeconfigPath := config.GetKubeconfigPath()
