@@ -4,6 +4,7 @@
 [![Go Version](https://img.shields.io/github/go-mod/go-version/kadirbelkuyu/kubecfg)](https://github.com/kadirbelkuyu/kubecfg)
 [![License](https://img.shields.io/github/license/kadirbelkuyu/kubecfg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/kadirbelkuyu/kubecfg)](https://github.com/kadirbelkuyu/kubecfg/releases)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=kadirbelkuyu_kubecfg&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=kadirbelkuyu_kubecfg)
 
 A CLI tool for managing Kubernetes kubeconfig files.
 

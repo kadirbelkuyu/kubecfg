@@ -9,7 +9,7 @@ import (
 	"github.com/kadirbelkuyu/kubecfg/internal/config"
 )
 
-// setupPolicyService initialises the package-level policyService used by the
+// setupPolicyService initializes the package-level policyService used by the
 // policy commands.  Call this instead of running the full cobra pre-run chain.
 func setupPolicyService(profiles map[string]config.ProfileConfig) {
 	policyService = application.NewPolicyService(profiles)

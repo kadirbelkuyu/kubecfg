@@ -11,11 +11,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kadirbelkuyu/kubecfg/internal/domain"
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
-	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"github.com/kadirbelkuyu/kubecfg/internal/domain"
 )
 
 type GuardProxy struct {

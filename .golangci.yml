@@ -1,0 +1,46 @@
+version: "2"
+run:
+  tests: true
+linters:
+  enable:
+    - gocritic
+    - misspell
+    - prealloc
+    - revive
+    - unparam
+  settings:
+    misspell:
+      locale: US
+    revive:
+      confidence: 0.8
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - errcheck
+          - gosec
+          - staticcheck
+        path: _test\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/kadirbelkuyu/kubecfg
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

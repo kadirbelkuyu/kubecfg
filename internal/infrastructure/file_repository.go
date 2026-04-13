@@ -8,8 +8,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/kadirbelkuyu/kubecfg/internal/domain"
 	"gopkg.in/yaml.v3"
+
+	"github.com/kadirbelkuyu/kubecfg/internal/domain"
 )
 
 const (
