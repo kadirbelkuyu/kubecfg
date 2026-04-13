@@ -13,6 +13,7 @@ import (
 type GuardStartOptions struct {
 	SourcePath string
 	TTL        time.Duration
+	Profile    domain.PolicyProfile
 }
 
 type GuardStatus struct {
@@ -63,6 +64,11 @@ func (s *GuardService) StartReadonly(options GuardStartOptions) (*domain.Session
 		return nil, err
 	}
 
+	readonly, mode, err := s.resolvePolicy(options.Profile)
+	if err != nil {
+		return nil, err
+	}
+
 	ttl := options.TTL
 	if ttl <= 0 {
 		ttl = s.defaultTTL
@@ -94,8 +100,9 @@ func (s *GuardService) StartReadonly(options GuardStartOptions) (*domain.Session
 		ID:                      sessionID,
 		StartedAt:               startedAt,
 		ExpiresAt:               startedAt.Add(ttl),
-		Readonly:                true,
-		Mode:                    domain.GuardModeReadonly,
+		Readonly:                readonly,
+		Mode:                    mode,
+		PolicyName:              options.Profile,
 		SourceKubeconfigPath:    options.SourcePath,
 		GeneratedKubeconfigPath: result.Path,
 		ProxyListenAddress:      proxyAddress,
@@ -178,6 +185,20 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func (s *GuardService) resolvePolicy(profile domain.PolicyProfile) (readonly bool, mode domain.GuardMode, err error) {
+	if profile == "" {
+		return true, domain.GuardModeReadonly, nil
+	}
+	p, err := domain.FindProfile(profile)
+	if err != nil {
+		return false, "", err
+	}
+	if p.Readonly {
+		return true, domain.GuardModeReadonly, nil
+	}
+	return false, domain.GuardModePolicy, nil
 }
 
 type SessionService struct {
