@@ -3,11 +3,13 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
 
 	"github.com/kadirbelkuyu/kubecfg/internal/application"
+	"github.com/kadirbelkuyu/kubecfg/internal/fzf"
 	"github.com/kadirbelkuyu/kubecfg/internal/infrastructure"
 	"github.com/kadirbelkuyu/kubecfg/internal/ui"
 )
@@ -22,39 +24,60 @@ var useCmd = &cobra.Command{
 	Long:  "Set the current context and optionally set the namespace.\nUse -n flag without value for interactive namespace selection.\nUse -n <namespace> to set a specific namespace.",
 	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		contextName := resolveContextName(args)
-		if contextName == "" {
-			return
-		}
-
-		namespace := resolveNamespace(cmd, contextName)
-
-		if err := service.UseContext(kubeconfigPath, contextName, namespace); err != nil {
+		if err := runUse(cmd, args); err != nil {
 			printError(err)
-			return
 		}
-
-		printContextSwitchResult(contextName, namespace)
 	},
 }
 
-func resolveContextName(args []string) string {
+func runUse(cmd *cobra.Command, args []string) error {
+	contextName, err := resolveContextName(args)
+	if err != nil {
+		return err
+	}
+
+	if contextName == "" {
+		return nil
+	}
+
+	namespace := resolveNamespace(cmd, contextName)
+
+	if err := service.UseContext(kubeconfigPath, contextName, namespace); err != nil {
+		return err
+	}
+
+	printContextSwitchResult(contextName, namespace)
+	return nil
+}
+
+func resolveContextName(args []string) (string, error) {
 	if len(args) == 1 {
-		return args[0]
+		if args[0] == "-" {
+			previous, err := infrastructure.ReadPrevious()
+			if err != nil {
+				return "", err
+			}
+
+			if previous == "" {
+				return "", fmt.Errorf("no previous context recorded")
+			}
+
+			return previous, nil
+		}
+
+		return args[0], nil
 	}
 
 	contexts, err := service.ListContexts(kubeconfigPath)
 	if err != nil {
-		printError(err)
-		return ""
+		return "", err
 	}
 
 	if len(contexts) == 0 {
-		printError(fmt.Errorf("no contexts available"))
-		return ""
+		return "", fmt.Errorf("no contexts available")
 	}
 
-	return selectContextInteractive(contexts)
+	return selectContextInteractive(contexts), nil
 }
 
 func selectContextInteractive(contexts []application.ContextInfo) string {
@@ -64,6 +87,20 @@ func selectContextInteractive(contexts []application.ContextInfo) string {
 		items = append(items, ctx.Name)
 		if ctx.Current {
 			currentIdx = i
+		}
+	}
+
+	if fzf.Available() {
+		selected, err := fzf.Select(items, fzf.Options{
+			Prompt:  "context> ",
+			Header:  "Select Kubernetes context",
+			Preview: "kubecfg current --context {}",
+		})
+		if err == nil {
+			return selected
+		}
+		if err == fzf.ErrAborted {
+			return ""
 		}
 	}
 
@@ -118,7 +155,7 @@ func selectNamespaceForContext(contextName string) string {
 	currentNs, _ := service.GetContextNamespace(kubeconfigPath, contextName)
 
 	k8sClient := infrastructure.NewKubernetesClient(kubeconfigPath)
-	namespaces, err := k8sClient.ListNamespaces()
+	namespaces, err := k8sClient.ListNamespacesForContext(contextName, 10*time.Second)
 	if err != nil {
 		return currentNs
 	}
@@ -129,6 +166,22 @@ func selectNamespaceForContext(contextName string) string {
 
 	skipOption := "[Skip - keep current]"
 	items := append([]string{skipOption}, namespaces...)
+
+	if fzf.Available() {
+		selected, err := fzf.Select(items, fzf.Options{
+			Prompt: "namespace> ",
+			Header: "Select Kubernetes namespace",
+		})
+		if err == nil {
+			if selected == skipOption {
+				return ""
+			}
+			return selected
+		}
+		if err == fzf.ErrAborted {
+			return currentNs
+		}
+	}
 
 	var currentIdx int
 	for i, ns := range items {

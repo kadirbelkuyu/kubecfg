@@ -219,10 +219,86 @@ audit:
   path: ~/.kubecfg/audit.log
 `
 
+var policyCreateFrom string
+
+var policyCreateCmd = &cobra.Command{
+	Use:   "create <name>",
+	Short: "Create a custom policy profile based on an existing one",
+	Long:  "Scaffolds a new profile section in ~/.kubecfg/config.yaml derived from an existing profile.",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		name := args[0]
+
+		if name == domain.PolicyProfileProd || name == domain.PolicyProfileStaging || name == domain.PolicyProfileDebug {
+			printError(fmt.Errorf("cannot override builtin profile %q — choose a different name", name))
+			return
+		}
+
+		base, err := policyService.GetPolicy(policyCreateFrom)
+		if err != nil {
+			printError(fmt.Errorf("base profile: %w", err))
+			return
+		}
+
+		home, err := os.UserHomeDir()
+		if err != nil {
+			printError(fmt.Errorf("get home dir: %w", err))
+			return
+		}
+
+		dir := filepath.Join(home, ".kubecfg")
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			printError(fmt.Errorf("create config directory: %w", err))
+			return
+		}
+
+		dest := filepath.Join(dir, "config.yaml")
+
+		snippet := fmt.Sprintf(`
+# Profile: %s (derived from %s)
+# Add this under the "profiles:" key in %s
+
+  %s:
+    description: "%s (copy of %s)"
+    readonly: %v
+    confirm_destructive: %v
+    blocked_resources: %s
+    blocked_verbs: %s
+    allowed_namespaces: %s
+    warn_context_patterns: %s
+`,
+			name, policyCreateFrom, dest,
+			name,
+			base.Description, policyCreateFrom,
+			base.Readonly,
+			base.ConfirmDestructive,
+			yamlStringSlice(base.BlockedResources),
+			yamlStringSlice(base.BlockedVerbs),
+			yamlStringSlice(base.AllowedNamespaces),
+			yamlStringSlice(base.WarnContextPatterns),
+		)
+
+		printInfo(fmt.Sprintf("Add the following to %s:\n%s", dest, snippet))
+	},
+}
+
+func yamlStringSlice(items []string) string {
+	if len(items) == 0 {
+		return "[]"
+	}
+	var sb strings.Builder
+	for _, item := range items {
+		_, _ = fmt.Fprintf(&sb, "\n      - %s", item)
+	}
+	return sb.String()
+}
+
 func init() {
+	policyCreateCmd.Flags().StringVar(&policyCreateFrom, "from", "staging", "base profile to derive from (prod, staging, debug)")
 	policyCmd.AddCommand(policyListCmd)
 	policyCmd.AddCommand(policyShowCmd)
 	policyCmd.AddCommand(policyInitCmd)
 	policyCmd.AddCommand(policyValidateCmd)
+	policyCmd.AddCommand(policyCreateCmd)
 	rootCmd.AddCommand(policyCmd)
 }

@@ -122,7 +122,7 @@ func TestProxyErrorMessagesDescriptive(t *testing.T) {
 			policy:         &domain.Policy{Name: "p", Readonly: true},
 			method:         "POST",
 			path:           "/api/v1/pods",
-			wantSubstrings: []string{"readonly", "POST"},
+			wantSubstrings: []string{"POST", "write operations are disabled"},
 		},
 		{
 			name:           "blocked resource message",
@@ -142,7 +142,7 @@ func TestProxyErrorMessagesDescriptive(t *testing.T) {
 			name:           "destructive confirm message",
 			policy:         &domain.Policy{Name: "p", ConfirmDestructive: true},
 			method:         "DELETE",
-			path:           "/api/v1/namespaces/default/pods/mypod",
+			path:           "/api/v1/nodes/node-1",
 			wantSubstrings: []string{"destructive", "confirmation"},
 		},
 	}

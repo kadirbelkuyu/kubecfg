@@ -11,11 +11,19 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
+	"github.com/kadirbelkuyu/kubecfg/internal/application"
 	"github.com/kadirbelkuyu/kubecfg/internal/domain"
+)
+
+const (
+	guardHealthPath     = "/.kubecfg/guard/healthz"
+	confirmPollInterval = 250 * time.Millisecond
+	confirmTimeout      = 30 * time.Second
 )
 
 type GuardProxy struct {
@@ -23,9 +31,12 @@ type GuardProxy struct {
 	auditSink domain.AuditStore
 }
 
-const guardHealthPath = "/.kubecfg/guard/healthz"
-
-func NewGuardProxy(session *domain.Session, policy domain.GuardRequestPolicy, auditSink domain.AuditStore) (*GuardProxy, error) {
+func NewGuardProxy(
+	session *domain.Session,
+	policy domain.GuardRequestPolicy,
+	auditSink domain.AuditStore,
+	confirmStore domain.ConfirmationStore,
+) (*GuardProxy, error) {
 	if session == nil {
 		return nil, fmt.Errorf("session is required")
 	}
@@ -46,6 +57,8 @@ func NewGuardProxy(session *domain.Session, policy domain.GuardRequestPolicy, au
 	if err != nil {
 		return nil, fmt.Errorf("parse proxy listen address: %w", err)
 	}
+
+	isDebug := session.PolicyName == domain.PolicyProfileDebug
 
 	server := &http.Server{
 		Addr:              serverURL.Host,
@@ -70,17 +83,88 @@ func NewGuardProxy(session *domain.Session, policy domain.GuardRequestPolicy, au
 				return
 			}
 
-			if err := policy.Validate(request.Method, request.URL.RequestURI()); err != nil {
+			validationErr := policy.Validate(request.Method, request.URL.RequestURI())
+
+			if confirmErr, ok := application.IsConfirmRequired(validationErr); ok {
+				appendGuardAuditEvent(auditSink, domain.AuditEvent{
+					Type:      domain.AuditEventGuardRequestPending,
+					SessionID: session.ID,
+					Context:   session.TargetContext,
+					Namespace: session.TargetNamespace,
+					Mode:      string(session.Mode),
+					Message:   confirmErr.Error(),
+				})
+
+				if confirmStore == nil {
+					http.Error(writer, "[kubecfg guard] confirmation required but no confirmation store configured", http.StatusForbidden)
+					return
+				}
+
+				pending := &domain.PendingConfirmation{
+					ID:        uuid.NewString(),
+					SessionID: session.ID,
+					Method:    request.Method,
+					Resource:  request.URL.RequestURI(),
+					Namespace: confirmErr.Namespace,
+					CreatedAt: time.Now().UTC(),
+					Decision:  domain.ConfirmDecisionPending,
+				}
+
+				if err := confirmStore.Create(pending); err != nil {
+					http.Error(writer, fmt.Sprintf("[kubecfg guard] failed to create confirmation: %v", err), http.StatusInternalServerError)
+					return
+				}
+
+				decision := waitForDecision(confirmStore, pending.ID, confirmTimeout)
+				_ = confirmStore.Delete(pending.ID)
+
+				switch decision {
+				case domain.ConfirmDecisionApproved:
+					appendGuardAuditEvent(auditSink, domain.AuditEvent{
+						Type:      domain.AuditEventGuardRequestApproved,
+						SessionID: session.ID,
+						Context:   session.TargetContext,
+						Namespace: session.TargetNamespace,
+						Mode:      string(session.Mode),
+						Message:   fmt.Sprintf("approved: %s %s", request.Method, request.URL.RequestURI()),
+					})
+					reverseProxy.ServeHTTP(writer, request)
+				default:
+					appendGuardAuditEvent(auditSink, domain.AuditEvent{
+						Type:      domain.AuditEventGuardRequestDenied,
+						SessionID: session.ID,
+						Context:   session.TargetContext,
+						Namespace: session.TargetNamespace,
+						Mode:      string(session.Mode),
+						Message:   fmt.Sprintf("denied (timeout or explicit): %s %s", request.Method, request.URL.RequestURI()),
+					})
+					http.Error(writer, "[kubecfg guard] destructive operation denied or confirmation timed out", http.StatusForbidden)
+				}
+				return
+			}
+
+			if validationErr != nil {
 				appendGuardAuditEvent(auditSink, domain.AuditEvent{
 					Type:      domain.AuditEventGuardRequestBlocked,
 					SessionID: session.ID,
 					Context:   session.TargetContext,
 					Namespace: session.TargetNamespace,
 					Mode:      string(session.Mode),
-					Message:   err.Error(),
+					Message:   validationErr.Error(),
 				})
-				http.Error(writer, err.Error(), http.StatusForbidden)
+				http.Error(writer, validationErr.Error(), http.StatusForbidden)
 				return
+			}
+
+			if isDebug {
+				appendGuardAuditEvent(auditSink, domain.AuditEvent{
+					Type:      domain.AuditEventGuardRequestAllowed,
+					SessionID: session.ID,
+					Context:   session.TargetContext,
+					Namespace: session.TargetNamespace,
+					Mode:      string(session.Mode),
+					Message:   fmt.Sprintf("%s %s", request.Method, request.URL.RequestURI()),
+				})
 			}
 
 			reverseProxy.ServeHTTP(writer, request)
@@ -106,6 +190,21 @@ func (p *GuardProxy) Run() error {
 	}
 
 	return nil
+}
+
+func waitForDecision(store domain.ConfirmationStore, id string, timeout time.Duration) domain.ConfirmDecision {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		time.Sleep(confirmPollInterval)
+		pending, err := store.Read(id)
+		if err != nil {
+			return domain.ConfirmDecisionDenied
+		}
+		if pending.Decision != domain.ConfirmDecisionPending {
+			return pending.Decision
+		}
+	}
+	return domain.ConfirmDecisionDenied
 }
 
 func buildGuardTransport(sourcePath, contextName string) (*url.URL, http.RoundTripper, error) {

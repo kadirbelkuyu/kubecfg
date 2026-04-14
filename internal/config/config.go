@@ -106,6 +106,14 @@ func GetAuditPath() string {
 	return v.GetString("audit.path")
 }
 
+func GetConfirmationsDir() string {
+	return filepath.Join(getDefaultGuardStateDir(), "confirmations")
+}
+
+func GetLastContextPath() string {
+	return filepath.Join(getDefaultGuardStateDir(), "last-context")
+}
+
 func getDefaultGuardStateDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
