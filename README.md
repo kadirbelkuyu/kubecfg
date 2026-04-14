@@ -31,6 +31,35 @@ brew install kadirbelkuyu/tap/kubecfg
 go install github.com/kadirbelkuyu/kubecfg@latest
 ```
 
+## Shell Completion
+
+```bash
+# bash
+echo 'eval "$(kubecfg completion bash)"' >> ~/.bashrc
+
+# zsh
+echo 'source <(kubecfg completion zsh)' >> ~/.zshrc
+
+# fish
+kubecfg completion fish | source
+```
+
+Full setup notes for Bash, Zsh, Fish, PowerShell, oh-my-zsh, zplug, and fisher live in [docs/shell-completion.md](docs/shell-completion.md).
+
+## fzf Integration
+
+Install `fzf` and `kubecfg` will use it automatically for context and namespace selection. To opt out:
+
+```bash
+export KUBECFG_IGNORE_FZF=1
+```
+
+## Quick Toggle
+
+```bash
+kubecfg use -    # switch to previous context (like kubectx -)
+```
+
 ### From Source
 
 ```bash

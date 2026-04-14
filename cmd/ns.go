@@ -7,6 +7,7 @@ import (
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
 
+	"github.com/kadirbelkuyu/kubecfg/internal/fzf"
 	"github.com/kadirbelkuyu/kubecfg/internal/infrastructure"
 	"github.com/kadirbelkuyu/kubecfg/internal/ui"
 )
@@ -68,6 +69,19 @@ func selectNamespace(currentNs string) string {
 
 	if len(namespaces) == 0 {
 		return promptNamespaceManual(currentNs)
+	}
+
+	if fzf.Available() {
+		selected, err := fzf.Select(namespaces, fzf.Options{
+			Prompt: "namespace> ",
+			Header: "Select Kubernetes namespace",
+		})
+		if err == nil {
+			return selected
+		}
+		if err == fzf.ErrAborted {
+			return ""
+		}
 	}
 
 	var currentIdx int

@@ -11,7 +11,8 @@ import (
 )
 
 type Service struct {
-	repo domain.Repository
+	repo    domain.Repository
+	history domain.PreviousContextStore
 }
 
 type MergeConflictStrategy string
@@ -29,8 +30,21 @@ type BackupInfo struct {
 	CreatedAt time.Time
 }
 
-func NewService(repo domain.Repository) *Service {
-	return &Service{repo: repo}
+type ServiceOption func(*Service)
+
+func WithPreviousContextStore(store domain.PreviousContextStore) ServiceOption {
+	return func(service *Service) {
+		service.history = store
+	}
+}
+
+func NewService(repo domain.Repository, options ...ServiceOption) *Service {
+	service := &Service{repo: repo}
+	for _, option := range options {
+		option(service)
+	}
+
+	return service
 }
 
 func (s *Service) GetDefaultPath() string {
@@ -206,6 +220,10 @@ func (s *Service) UseContext(targetPath, contextName, namespace string) error {
 		return domain.ErrContextNotFound
 	}
 
+	if err := s.recordPreviousContext(config.CurrentContext, contextName); err != nil {
+		return err
+	}
+
 	config.CurrentContext = contextName
 
 	if namespace != "" {
@@ -213,6 +231,23 @@ func (s *Service) UseContext(targetPath, contextName, namespace string) error {
 	}
 
 	return s.repo.Save(targetPath, config)
+}
+
+func (s *Service) recordPreviousContext(currentContext, nextContext string) error {
+	if s.history == nil {
+		return nil
+	}
+
+	currentContext = strings.TrimSpace(currentContext)
+	if currentContext == "" || currentContext == strings.TrimSpace(nextContext) {
+		return nil
+	}
+
+	if err := s.history.WritePrevious(currentContext); err != nil {
+		return fmt.Errorf("write previous context: %w", err)
+	}
+
+	return nil
 }
 
 func (s *Service) GetContextNamespace(targetPath, contextName string) (string, error) {
