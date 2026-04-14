@@ -119,7 +119,8 @@ var guardProxyCmd = &cobra.Command{
 		}
 
 		auditStore := infrastructure.NewAuditFileStore(config.GetAuditPath())
-		proxy, err := infrastructure.NewGuardProxy(session, policyForSession(session), auditStore)
+		confirmStore := infrastructure.NewFileConfirmationStore(config.GetConfirmationsDir())
+		proxy, err := infrastructure.NewGuardProxy(session, policyForSession(session), auditStore, confirmStore)
 		if err != nil {
 			printError(err)
 			return
