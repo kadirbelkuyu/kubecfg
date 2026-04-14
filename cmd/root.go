@@ -29,7 +29,10 @@ var rootCmd = &cobra.Command{
 		config.Init()
 		policyService = application.NewPolicyService(config.GetProfiles())
 		repo := infrastructure.NewFileRepository()
-		service = application.NewService(repo)
+		service = application.NewService(
+			repo,
+			application.WithPreviousContextStore(infrastructure.NewPreviousContextStore(config.GetLastContextPath())),
+		)
 		runtime, err := infrastructure.NewGuardProcessRuntime("", config.GetGuardSessionPath())
 		if err != nil {
 			printError(err)
@@ -69,6 +72,7 @@ func Execute() {
 }
 
 func init() {
+	rootCmd.CompletionOptions.DisableDefaultCmd = true
 	rootCmd.PersistentFlags().StringVar(&kubeconfigPath, "kubeconfig", "", "path to kubeconfig file")
 }
 

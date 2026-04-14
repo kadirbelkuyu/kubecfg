@@ -28,6 +28,7 @@ const (
 	ViewRemoveConfirm
 	ViewGuard
 	ViewPolicy
+	ViewConfirmModal
 )
 
 type InputMode int
@@ -69,11 +70,18 @@ type Model struct {
 	policies        []domain.Policy
 	policyCursor    int
 	policyUserFlags map[string]bool // name → true if user-defined
+	// confirmation modal state
+	confirmationStore domain.ConfirmationStore
+	pendingConfirm    *domain.PendingConfirmation
+	previousView      View
 }
 
 func NewModel() (Model, error) {
 	repo := infrastructure.NewFileRepository()
-	service := application.NewService(repo)
+	service := application.NewService(
+		repo,
+		application.WithPreviousContextStore(infrastructure.NewPreviousContextStore(config.GetLastContextPath())),
+	)
 	runtime, err := infrastructure.NewGuardProcessRuntime("", config.GetGuardSessionPath())
 	if err != nil {
 		return Model{}, fmt.Errorf("create guard runtime: %w", err)
@@ -103,23 +111,25 @@ func NewModel() (Model, error) {
 	input.Width = 40
 
 	policySvc := application.NewPolicyService(config.GetProfiles())
+	confirmStore := infrastructure.NewFileConfirmationStore(config.GetConfirmationsDir())
 
 	return Model{
-		service:         service,
-		guardService:    guardService,
-		policyService:   policySvc,
-		currentView:     ViewMenu,
-		menuCursor:      0,
-		filterInput:     ti,
-		textInput:       input,
-		guardTTLOptions: []time.Duration{15 * time.Minute, 30 * time.Minute, time.Hour, 2 * time.Hour},
-		guardTTLIndex:   1,
-		policyUserFlags: make(map[string]bool),
+		service:           service,
+		guardService:      guardService,
+		policyService:     policySvc,
+		confirmationStore: confirmStore,
+		currentView:       ViewMenu,
+		menuCursor:        0,
+		filterInput:       ti,
+		textInput:         input,
+		guardTTLOptions:   []time.Duration{15 * time.Minute, 30 * time.Minute, time.Hour, 2 * time.Hour},
+		guardTTLIndex:     1,
+		policyUserFlags:   make(map[string]bool),
 	}, nil
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.loadContexts, m.loadGuardStatus)
+	return tea.Batch(m.loadContexts, m.loadGuardStatus, tickConfirmPoll())
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -173,6 +183,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateGuard(msg)
 		case ViewPolicy:
 			return m.updatePolicy(msg)
+		case ViewConfirmModal:
+			return m.updateConfirmModal(msg)
 		}
 
 	case tea.WindowSizeMsg:
@@ -264,6 +276,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.guardStatus != nil && m.guardStatus.Active {
 			return m, m.loadGuardStatus
 		}
+		return m, nil
+
+	case confirmPollMsg:
+		if m.confirmationStore != nil && m.currentView != ViewConfirmModal {
+			store := m.confirmationStore
+			return m, func() tea.Msg {
+				pending, err := store.ListPending()
+				if err != nil || len(pending) == 0 {
+					return tickConfirmPoll()()
+				}
+				return confirmPendingMsg{pending: pending[0]}
+			}
+		}
+		return m, tickConfirmPoll()
+
+	case confirmPendingMsg:
+		m.pendingConfirm = msg.pending
+		m.previousView = m.currentView
+		m.currentView = ViewConfirmModal
 		return m, nil
 
 	case policiesLoadedMsg:
@@ -651,6 +682,48 @@ func (m Model) updatePolicy(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) updateConfirmModal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.pendingConfirm == nil {
+		m.currentView = m.previousView
+		return m, tickConfirmPoll()
+	}
+
+	switch msg.String() {
+	case "y", "Y":
+		if m.confirmationStore != nil {
+			_ = m.confirmationStore.Decide(m.pendingConfirm.ID, domain.ConfirmDecisionApproved)
+		}
+		m.pendingConfirm = nil
+		m.currentView = m.previousView
+		return m, tickConfirmPoll()
+	case "n", "N", "esc":
+		if m.confirmationStore != nil {
+			_ = m.confirmationStore.Decide(m.pendingConfirm.ID, domain.ConfirmDecisionDenied)
+		}
+		m.pendingConfirm = nil
+		m.currentView = m.previousView
+		return m, tickConfirmPoll()
+	}
+	return m, nil
+}
+
+func (m Model) viewConfirmModal() string {
+	if m.pendingConfirm == nil {
+		return ""
+	}
+	p := m.pendingConfirm
+	content := strings.Join([]string{
+		ErrorStyle.Render("⚠  Destructive operation detected"),
+		"",
+		fmt.Sprintf("  Method:    %s", SelectedItemStyle.Render(p.Method)),
+		fmt.Sprintf("  Resource:  %s", ContextNameStyle.Render(p.Resource)),
+		fmt.Sprintf("  Namespace: %s", NamespaceStyle.Render(p.Namespace)),
+		"",
+		DimItemStyle.Render("Allow? [y] Yes  [n/esc] No  (30s timeout → denied)"),
+	}, "\n")
+	return ConfirmModalStyle.Render(content)
+}
+
 func (m Model) viewPolicies() string {
 	var b strings.Builder
 
@@ -726,6 +799,8 @@ func (m Model) View() string {
 		content.WriteString(m.viewGuard())
 	case ViewPolicy:
 		content.WriteString(m.viewPolicies())
+	case ViewConfirmModal:
+		content.WriteString(m.viewConfirmModal())
 	}
 
 	if m.errorMessage != "" {
@@ -815,6 +890,9 @@ func (m Model) renderHelp() string {
 	case ViewPolicy:
 		addKey("r", "refresh")
 		addKey("esc", "back")
+	case ViewConfirmModal:
+		addKey("y", "approve")
+		addKey("n/esc", "deny")
 	}
 
 	addKey("q", "quit")
@@ -828,9 +906,15 @@ func (m Model) renderGuardBanner() string {
 	}
 
 	session := m.guardStatus.Session
+	profile := session.PolicyName
+
+	label := fmt.Sprintf("[GUARD: %s]", strings.ToUpper(profile))
+	if profile == "" {
+		label = "[GUARD: READONLY]"
+	}
+
 	parts := []string{
-		"Guard Active",
-		session.ModeDisplay(),
+		label,
 		session.TargetContext,
 		session.NamespaceDisplay(),
 		formatGuardDuration(m.guardStatus.Remaining),
@@ -840,7 +924,18 @@ func (m Model) renderGuardBanner() string {
 		parts = append(parts, session.ProxyListenAddress)
 	}
 
-	return GuardBannerStyle.Render(strings.Join(parts, " | "))
+	text := strings.Join(parts, " | ")
+
+	switch profile {
+	case domain.PolicyProfileProd:
+		return ProfileProdStyle.Render(text)
+	case domain.PolicyProfileStaging:
+		return ProfileStagingStyle.Render(text)
+	case domain.PolicyProfileDebug:
+		return ProfileDebugStyle.Render(text)
+	default:
+		return GuardBannerStyle.Render(text)
+	}
 }
 
 func (m Model) viewMenu() string {
@@ -1312,6 +1407,18 @@ func (m Model) selectedGuardTTL() time.Duration {
 func tickGuardStatus() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
 		return guardTickMsg(t)
+	})
+}
+
+type confirmPollMsg time.Time
+
+type confirmPendingMsg struct {
+	pending *domain.PendingConfirmation
+}
+
+func tickConfirmPoll() tea.Cmd {
+	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
+		return confirmPollMsg(t)
 	})
 }
 

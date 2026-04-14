@@ -22,31 +22,42 @@ func NewKubernetesClient(kubeconfigPath string) *KubernetesClient {
 }
 
 func (k *KubernetesClient) ListNamespaces() ([]string, error) {
-	// Try using the native Kubernetes client first
-	namespaces, err := k.listNamespacesWithClient()
+	return k.ListNamespacesForContext("", 10*time.Second)
+}
+
+func (k *KubernetesClient) ListNamespacesForContext(contextName string, timeout time.Duration) ([]string, error) {
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+
+	namespaces, err := k.listNamespacesWithClient(contextName, timeout)
 	if err == nil {
 		return namespaces, nil
 	}
 
-	// If native client fails (e.g., due to auth issues), fall back to kubectl
-	return k.listNamespacesWithKubectl()
+	return k.listNamespacesWithKubectl(contextName, timeout)
 }
 
-// listNamespacesWithClient uses the native Kubernetes Go client
-func (k *KubernetesClient) listNamespacesWithClient() ([]string, error) {
-	config, err := clientcmd.BuildConfigFromFlags("", k.kubeconfigPath)
+func (k *KubernetesClient) listNamespacesWithClient(contextName string, timeout time.Duration) ([]string, error) {
+	loadingRules := &clientcmd.ClientConfigLoadingRules{ExplicitPath: k.kubeconfigPath}
+	overrides := &clientcmd.ConfigOverrides{}
+	if contextName != "" {
+		overrides.CurrentContext = contextName
+	}
+
+	config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, overrides).ClientConfig()
 	if err != nil {
 		return nil, err
 	}
 
-	config.Timeout = 10 * time.Second
+	config.Timeout = timeout
 
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return nil, err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	namespaceList, err := clientset.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
@@ -62,12 +73,17 @@ func (k *KubernetesClient) listNamespacesWithClient() ([]string, error) {
 	return namespaces, nil
 }
 
-func (k *KubernetesClient) listNamespacesWithKubectl() ([]string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func (k *KubernetesClient) listNamespacesWithKubectl(contextName string, timeout time.Duration) ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	// #nosec G204 -- kubectl is invoked directly without a shell and the kubeconfig path is passed as a literal argument.
-	cmd := exec.CommandContext(ctx, "kubectl", "get", "namespaces", "-o", "name", "--kubeconfig", k.kubeconfigPath)
+	args := []string{"get", "namespaces", "-o", "name", "--kubeconfig", k.kubeconfigPath}
+	if contextName != "" {
+		args = append(args, "--context", contextName)
+	}
+
+	// #nosec G204 -- kubectl is invoked directly without a shell and arguments are passed literally.
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, err

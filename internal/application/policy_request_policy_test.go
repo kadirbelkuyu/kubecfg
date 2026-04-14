@@ -178,7 +178,7 @@ func TestPolicyRequestPolicyBlockedResources(t *testing.T) {
 	}
 }
 
-func TestPolicyRequestBlockedErrorMessage(t *testing.T) {
+func TestPolicyRequestConfirmRequiredErrorMessage(t *testing.T) {
 	p := &domain.Policy{
 		Name:               "test",
 		ConfirmDestructive: true,
@@ -190,21 +190,39 @@ func TestPolicyRequestBlockedErrorMessage(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 
-	blocked, ok := err.(*PolicyRequestBlockedError)
+	confirm, ok := err.(*ConfirmRequiredError)
 	if !ok {
-		t.Fatalf("expected *PolicyRequestBlockedError, got %T", err)
+		t.Fatalf("expected *ConfirmRequiredError, got %T", err)
 	}
 
-	if blocked.Method != "DELETE" {
-		t.Fatalf("Method = %q, want DELETE", blocked.Method)
+	if confirm.Method != "DELETE" {
+		t.Fatalf("Method = %q, want DELETE", confirm.Method)
 	}
 
-	if blocked.Path != "/api/v1/pods/mypod" {
-		t.Fatalf("Path = %q, want /api/v1/pods/mypod", blocked.Path)
+	if confirm.Path != "/api/v1/pods/mypod" {
+		t.Fatalf("Path = %q, want /api/v1/pods/mypod", confirm.Path)
 	}
 
-	if blocked.Reason != "destructive operation requires confirmation" {
-		t.Fatalf("Reason = %q, unexpected", blocked.Reason)
+	if confirm.Reason != "cluster-wide destructive operation requires confirmation" {
+		t.Fatalf("Reason = %q, unexpected", confirm.Reason)
+	}
+}
+
+func TestIsConfirmRequired(t *testing.T) {
+	err := &ConfirmRequiredError{
+		Method:    "DELETE",
+		Path:      "/api/v1/nodes/node-1",
+		Namespace: "",
+		Reason:    "cluster-wide destructive operation requires confirmation",
+	}
+
+	got, ok := IsConfirmRequired(err)
+	if !ok {
+		t.Fatal("expected IsConfirmRequired to detect ConfirmRequiredError")
+	}
+
+	if got != err {
+		t.Fatal("expected returned error to match original pointer")
 	}
 }
 
