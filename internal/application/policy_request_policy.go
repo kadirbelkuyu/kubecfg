@@ -1,6 +1,7 @@
 package application
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -18,7 +19,23 @@ type PolicyRequestBlockedError struct {
 }
 
 func (e *PolicyRequestBlockedError) Error() string {
-	return fmt.Sprintf("guard policy blocked request: %s %s (%s)", e.Method, normalizeGuardPath(e.Path), e.Reason)
+	return fmt.Sprintf("[kubecfg guard] %s policy: %s %s — %s", "policy", e.Method, normalizeGuardPath(e.Path), e.Reason)
+}
+
+type ConfirmRequiredError struct {
+	Method    string
+	Path      string
+	Namespace string
+	Reason    string
+}
+
+func (e *ConfirmRequiredError) Error() string {
+	return fmt.Sprintf("[kubecfg guard] confirm required: %s %s — %s", e.Method, normalizeGuardPath(e.Path), e.Reason)
+}
+
+func IsConfirmRequired(err error) (*ConfirmRequiredError, bool) {
+	var e *ConfirmRequiredError
+	return e, errors.As(err, &e)
 }
 
 func NewPolicyRequestPolicy(policy *domain.Policy) *PolicyRequestPolicy {
@@ -33,30 +50,54 @@ func (p *PolicyRequestPolicy) Validate(method, path string) error {
 		switch m {
 		case "GET", "HEAD":
 		default:
-			return &PolicyRequestBlockedError{Method: m, Path: normalPath, Reason: "readonly mode"}
+			return &PolicyRequestBlockedError{
+				Method: m,
+				Path:   normalPath,
+				Reason: "prod policy: write operations are disabled",
+			}
 		}
 	}
 
 	for _, verb := range p.policy.BlockedVerbs {
 		if m == strings.ToUpper(strings.TrimSpace(verb)) {
-			return &PolicyRequestBlockedError{Method: m, Path: normalPath, Reason: fmt.Sprintf("verb %q is blocked by policy", strings.ToUpper(verb))}
+			return &PolicyRequestBlockedError{
+				Method: m,
+				Path:   normalPath,
+				Reason: fmt.Sprintf("verb %q is blocked by policy", strings.ToUpper(verb)),
+			}
 		}
 	}
 
 	if p.policy.ConfirmDestructive && m == "DELETE" {
-		return &PolicyRequestBlockedError{Method: m, Path: normalPath, Reason: "destructive operation requires confirmation"}
+		ns := extractNamespaceFromPath(normalPath)
+		if ns == "" {
+			return &ConfirmRequiredError{
+				Method:    m,
+				Path:      normalPath,
+				Namespace: ns,
+				Reason:    "cluster-wide destructive operation requires confirmation",
+			}
+		}
 	}
 
 	for _, resource := range p.policy.BlockedResources {
 		if pathContainsResource(normalPath, resource) {
-			return &PolicyRequestBlockedError{Method: m, Path: normalPath, Reason: fmt.Sprintf("resource %q is blocked by policy", resource)}
+			return &PolicyRequestBlockedError{
+				Method: m,
+				Path:   normalPath,
+				Reason: fmt.Sprintf("resource %q is blocked by policy", resource),
+			}
 		}
 	}
 
 	if len(p.policy.AllowedNamespaces) > 0 {
 		ns := extractNamespaceFromPath(normalPath)
 		if ns != "" && !namespaceAllowed(ns, p.policy.AllowedNamespaces) {
-			return &PolicyRequestBlockedError{Method: m, Path: normalPath, Reason: fmt.Sprintf("namespace %q is not in the allowed list", ns)}
+			return &PolicyRequestBlockedError{
+				Method: m,
+				Path:   normalPath,
+				Reason: fmt.Sprintf("namespace %q is not in the allowed list", ns),
+			}
 		}
 	}
 
