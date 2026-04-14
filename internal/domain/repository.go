@@ -9,3 +9,8 @@ type Repository interface {
 	Exists(path string) bool
 	GetDefaultPath() string
 }
+
+type PreviousContextStore interface {
+	ReadPrevious() (string, error)
+	WritePrevious(name string) error
+}

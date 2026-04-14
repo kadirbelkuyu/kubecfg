@@ -78,7 +78,10 @@ type Model struct {
 
 func NewModel() (Model, error) {
 	repo := infrastructure.NewFileRepository()
-	service := application.NewService(repo)
+	service := application.NewService(
+		repo,
+		application.WithPreviousContextStore(infrastructure.NewPreviousContextStore(config.GetLastContextPath())),
+	)
 	runtime, err := infrastructure.NewGuardProcessRuntime("", config.GetGuardSessionPath())
 	if err != nil {
 		return Model{}, fmt.Errorf("create guard runtime: %w", err)
