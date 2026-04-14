@@ -7,9 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/kadirbelkuyu/kubecfg/internal/domain"
 )
+
+const auditRotationSizeBytes = 10 * 1024 * 1024 // 10 MB
 
 type AuditFileStore struct {
 	path string
@@ -22,6 +25,10 @@ func NewAuditFileStore(path string) *AuditFileStore {
 func (s *AuditFileStore) Append(event domain.AuditEvent) error {
 	if err := os.MkdirAll(filepath.Dir(s.path), dirPermission); err != nil {
 		return fmt.Errorf("create audit directory: %w", err)
+	}
+
+	if err := s.rotateIfNeeded(); err != nil {
+		return err
 	}
 
 	file, err := os.OpenFile(s.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, filePermission)
@@ -87,4 +94,25 @@ func (s *AuditFileStore) ListRecent(limit int) ([]domain.AuditEvent, error) {
 	}
 
 	return events, nil
+}
+
+func (s *AuditFileStore) rotateIfNeeded() error {
+	info, err := os.Stat(s.path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("stat audit log: %w", err)
+	}
+
+	if info.Size() < auditRotationSizeBytes {
+		return nil
+	}
+
+	rotated := s.path + "." + time.Now().UTC().Format("20060102-150405")
+	if err := os.Rename(s.path, rotated); err != nil {
+		return fmt.Errorf("rotate audit log: %w", err)
+	}
+
+	return nil
 }
