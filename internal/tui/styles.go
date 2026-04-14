@@ -110,6 +110,31 @@ var (
 	GuardDegradedStyle = lipgloss.NewStyle().
 				Foreground(warningColor).
 				Bold(true)
+
+	// Profile ribbon styles: prod=red, staging=yellow, debug=green
+	ProfileProdStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#11111B")).
+				Background(errorColor).
+				Bold(true).
+				Padding(0, 1)
+
+	ProfileStagingStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#11111B")).
+				Background(accentColor).
+				Bold(true).
+				Padding(0, 1)
+
+	ProfileDebugStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#11111B")).
+				Background(successColor).
+				Bold(true).
+				Padding(0, 1)
+
+	ConfirmModalStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(errorColor).
+				Padding(1, 3).
+				Bold(true)
 )
 
 const (
