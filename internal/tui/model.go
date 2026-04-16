@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -12,9 +13,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kadirbelkuyu/kubecfg/internal/application"
+	"github.com/kadirbelkuyu/kubecfg/internal/application/healthservice"
 	"github.com/kadirbelkuyu/kubecfg/internal/config"
 	"github.com/kadirbelkuyu/kubecfg/internal/domain"
+	healthdomain "github.com/kadirbelkuyu/kubecfg/internal/domain/health"
 	"github.com/kadirbelkuyu/kubecfg/internal/infrastructure"
+	"github.com/kadirbelkuyu/kubecfg/internal/infrastructure/healthcheck"
 )
 
 type View int
@@ -74,9 +78,15 @@ type Model struct {
 	confirmationStore domain.ConfirmationStore
 	pendingConfirm    *domain.PendingConfirmation
 	previousView      View
+	healthService     *healthservice.Service
+	healthResults     map[string]healthdomain.Result
+	healthChecking    bool
+	healthPending     int
+	healthSpinner     int
+	healthLoaded      bool
 }
 
-func NewModel() (Model, error) {
+func NewModel(healthSvc *healthservice.Service) (Model, error) {
 	repo := infrastructure.NewFileRepository()
 	service := application.NewService(
 		repo,
@@ -112,6 +122,14 @@ func NewModel() (Model, error) {
 
 	policySvc := application.NewPolicyService(config.GetProfiles())
 	confirmStore := infrastructure.NewFileConfirmationStore(config.GetConfirmationsDir())
+	if healthSvc == nil {
+		healthSvc = healthservice.New(
+			healthcheck.New(config.GetKubeconfigPath()),
+			healthcheck.NewCache(),
+			repo,
+			config.GetKubeconfigPath(),
+		)
+	}
 
 	return Model{
 		service:           service,
@@ -125,6 +143,8 @@ func NewModel() (Model, error) {
 		guardTTLOptions:   []time.Duration{15 * time.Minute, 30 * time.Minute, time.Hour, 2 * time.Hour},
 		guardTTLIndex:     1,
 		policyUserFlags:   make(map[string]bool),
+		healthService:     healthSvc,
+		healthResults:     make(map[string]healthdomain.Result),
 	}, nil
 }
 
@@ -197,6 +217,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.filteredCtx = msg.contexts
 		if msg.err != nil {
 			m.errorMessage = msg.err.Error()
+			return m, nil
+		}
+		if !m.healthLoaded {
+			return m, m.startHealthChecksFor(contextNames(msg.contexts), false)
 		}
 		return m, nil
 
@@ -296,6 +320,47 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.previousView = m.currentView
 		m.currentView = ViewConfirmModal
 		return m, nil
+
+	case healthRefreshRequestMsg:
+		m.statusMessage = "Refreshing health status..."
+		return m, m.startHealthChecksFor(contextNames(m.filteredCtx), true)
+
+	case healthCheckProgressMsg:
+		m.healthResults[msg.result.ContextName] = msg.result
+		if m.healthPending > 0 {
+			m.healthPending--
+		}
+		if m.healthPending == 0 {
+			results := make([]healthdomain.Result, 0, len(m.healthResults))
+			for _, contextInfo := range m.contexts {
+				if result, ok := m.healthResults[contextInfo.Name]; ok {
+					results = append(results, result)
+				}
+			}
+			return m, func() tea.Msg {
+				return healthCheckCompleteMsg{results: results}
+			}
+		}
+		return m, nil
+
+	case healthCheckCompleteMsg:
+		for _, result := range msg.results {
+			m.healthResults[result.ContextName] = result
+		}
+		m.healthChecking = false
+		m.healthPending = 0
+		m.healthLoaded = true
+		if m.statusMessage == "Refreshing health status..." {
+			m.statusMessage = "Health status refreshed"
+		}
+		return m, nil
+
+	case healthSpinnerTickMsg:
+		if !m.healthChecking {
+			return m, nil
+		}
+		m.healthSpinner = (m.healthSpinner + 1) % len(healthSpinnerFrames)
+		return m, tickHealthSpinner()
 
 	case policiesLoadedMsg:
 		if msg.err != nil {
@@ -588,6 +653,10 @@ func (m Model) updateContextList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			default:
 				return m, m.switchContext(ctx.Name)
 			}
+		}
+	case key.Matches(msg, Keys.Refresh):
+		return m, func() tea.Msg {
+			return healthRefreshRequestMsg{}
 		}
 	default:
 		if len(m.filteredCtx) > 0 {
@@ -1030,6 +1099,7 @@ func (m Model) viewContextList() string {
 }
 
 func (m Model) formatContextLine(ctx application.ContextInfo) string {
+	indicator, detail := m.healthIndicator(ctx.Name)
 	name := ContextNameStyle.Render(ctx.Name)
 
 	ns := ctx.Namespace
@@ -1037,9 +1107,12 @@ func (m Model) formatContextLine(ctx application.ContextInfo) string {
 		ns = "default"
 	}
 
-	details := DimItemStyle.Render(fmt.Sprintf("(%s)", ns))
+	namespace := DimItemStyle.Render("[" + ns + "]")
+	if detail == "" {
+		return fmt.Sprintf("%s %s %s", indicator, name, namespace)
+	}
 
-	return fmt.Sprintf("%s %s", name, details)
+	return fmt.Sprintf("%s %s %s %s", indicator, name, detail, namespace)
 }
 
 func (m Model) viewNamespaceSelector() string {
@@ -1252,6 +1325,18 @@ type guardStoppedMsg struct {
 
 type guardTickMsg time.Time
 
+type healthCheckCompleteMsg struct {
+	results []healthdomain.Result
+}
+
+type healthCheckProgressMsg struct {
+	result healthdomain.Result
+}
+
+type healthRefreshRequestMsg struct{}
+
+type healthSpinnerTickMsg time.Time
+
 type policiesLoadedMsg struct {
 	policies        []domain.Policy
 	policyUserFlags map[string]bool
@@ -1410,6 +1495,8 @@ func tickGuardStatus() tea.Cmd {
 	})
 }
 
+var healthSpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
 type confirmPollMsg time.Time
 
 type confirmPendingMsg struct {
@@ -1422,6 +1509,96 @@ func tickConfirmPoll() tea.Cmd {
 	})
 }
 
+func tickHealthSpinner() tea.Cmd {
+	return tea.Tick(120*time.Millisecond, func(t time.Time) tea.Msg {
+		return healthSpinnerTickMsg(t)
+	})
+}
+
+func (m *Model) startHealthChecksFor(names []string, force bool) tea.Cmd {
+	if m.healthService == nil || len(names) == 0 {
+		return nil
+	}
+
+	cmds := make([]tea.Cmd, 0, len(names)+1)
+	seen := make(map[string]struct{}, len(names))
+
+	for _, name := range names {
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+
+		if !force {
+			if result := m.healthService.GetCached(name); result.Status != healthdomain.StatusUnknown {
+				m.healthResults[name] = result
+				continue
+			}
+		}
+
+		contextName := name
+		cmds = append(cmds, func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			result, _ := m.healthService.CheckContext(ctx, contextName)
+			return healthCheckProgressMsg{result: result}
+		})
+	}
+
+	if len(cmds) == 0 {
+		m.healthLoaded = true
+		return nil
+	}
+
+	m.healthChecking = true
+	m.healthPending = len(cmds)
+	cmds = append(cmds, tickHealthSpinner())
+	return tea.Batch(cmds...)
+}
+
+func (m Model) healthIndicator(contextName string) (string, string) {
+	result, ok := m.healthResults[contextName]
+	if !ok {
+		if m.healthChecking {
+			return HealthUnknownStyle.Render("?"), DimItemStyle.Render("(checking... " + healthSpinnerFrames[m.healthSpinner] + ")")
+		}
+		return HealthUnknownStyle.Render("?"), ""
+	}
+
+	switch result.Status {
+	case healthdomain.StatusHealthy:
+		return HealthHealthyStyle.Render(result.Status.Emoji()), DimItemStyle.Render("(" + formatHealthLatency(result.Latency) + ")")
+	case healthdomain.StatusDegraded:
+		return HealthDegradedStyle.Render(result.Status.Emoji()), DimItemStyle.Render("(" + formatHealthLatency(result.Latency) + ")")
+	case healthdomain.StatusUnhealthy, healthdomain.StatusUnreachable:
+		return HealthUnhealthyStyle.Render(result.Status.Emoji()), ""
+	default:
+		if m.healthChecking {
+			return HealthUnknownStyle.Render("?"), DimItemStyle.Render("(checking... " + healthSpinnerFrames[m.healthSpinner] + ")")
+		}
+		return HealthUnknownStyle.Render("?"), ""
+	}
+}
+
+func formatHealthLatency(latency time.Duration) string {
+	if latency <= 0 {
+		return "—"
+	}
+	if latency < time.Second {
+		return latency.Round(time.Millisecond).String()
+	}
+	return latency.Round(100 * time.Millisecond).String()
+}
+
+func contextNames(contexts []application.ContextInfo) []string {
+	names := make([]string, 0, len(contexts))
+	for _, contextInfo := range contexts {
+		names = append(names, contextInfo.Name)
+	}
+	return names
+}
+
 func formatGuardDuration(value time.Duration) string {
 	if value <= 0 {
 		return "expired"
@@ -1431,7 +1608,7 @@ func formatGuardDuration(value time.Duration) string {
 
 func Run() error {
 	config.Init()
-	model, err := NewModel()
+	model, err := NewModel(nil)
 	if err != nil {
 		return err
 	}
@@ -1440,10 +1617,10 @@ func Run() error {
 	return err
 }
 
-func RunWithConfig(kubeconfigPath string) error {
+func RunWithConfig(kubeconfigPath string, healthSvc *healthservice.Service) error {
 	config.Init()
 	config.SetKubeconfigPath(kubeconfigPath)
-	model, err := NewModel()
+	model, err := NewModel(healthSvc)
 	if err != nil {
 		return err
 	}
