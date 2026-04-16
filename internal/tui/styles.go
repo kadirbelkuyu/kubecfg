@@ -135,6 +135,22 @@ var (
 				BorderForeground(errorColor).
 				Padding(1, 3).
 				Bold(true)
+
+	HealthHealthyStyle = lipgloss.NewStyle().
+				Foreground(successColor).
+				Bold(true)
+
+	HealthDegradedStyle = lipgloss.NewStyle().
+				Foreground(accentColor).
+				Bold(true)
+
+	HealthUnhealthyStyle = lipgloss.NewStyle().
+				Foreground(errorColor).
+				Bold(true)
+
+	HealthUnknownStyle = lipgloss.NewStyle().
+				Foreground(subtleColor).
+				Bold(true)
 )
 
 const (
