@@ -41,6 +41,7 @@ func init() {
 	exportCmd.ValidArgsFunction = completeContextNames(false)
 	renameCmd.ValidArgsFunction = renameContextCompletion
 	nsCmd.ValidArgsFunction = namespaceArgCompletion
+	statusCmd.ValidArgsFunction = completeContextNames(false)
 
 	_ = currentCmd.RegisterFlagCompletionFunc("context", completeContextNames(false))
 	_ = useCmd.RegisterFlagCompletionFunc("namespace", completeNamespaceFlag)
