@@ -8,8 +8,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/kadirbelkuyu/kubecfg/internal/application"
+	appgroupservice "github.com/kadirbelkuyu/kubecfg/internal/application/groupservice"
 	"github.com/kadirbelkuyu/kubecfg/internal/config"
 	"github.com/kadirbelkuyu/kubecfg/internal/infrastructure"
+	"github.com/kadirbelkuyu/kubecfg/internal/infrastructure/groupstore"
 	"github.com/kadirbelkuyu/kubecfg/internal/tui"
 	"github.com/kadirbelkuyu/kubecfg/internal/ui"
 )
@@ -17,6 +19,7 @@ import (
 var (
 	kubeconfigPath string
 	service        *application.Service
+	groupService   *appgroupservice.Service
 	guardService   *application.GuardService
 	policyService  *application.PolicyService
 )
@@ -33,6 +36,7 @@ var rootCmd = &cobra.Command{
 			repo,
 			application.WithPreviousContextStore(infrastructure.NewPreviousContextStore(config.GetLastContextPath())),
 		)
+		groupService = appgroupservice.NewService(groupstore.NewFileStore(config.GetGroupsPath()), repo, kubeconfigPath)
 		runtime, err := infrastructure.NewGuardProcessRuntime("", config.GetGuardSessionPath())
 		if err != nil {
 			printError(err)

@@ -81,6 +81,10 @@ func resolveContextName(args []string) (string, error) {
 }
 
 func selectContextInteractive(contexts []application.ContextInfo) string {
+	return selectContextInteractiveWithHeader(contexts, "Select Kubernetes context")
+}
+
+func selectContextInteractiveWithHeader(contexts []application.ContextInfo, header string) string {
 	items := make([]string, 0, len(contexts))
 	var currentIdx int
 	for i, ctx := range contexts {
@@ -93,7 +97,7 @@ func selectContextInteractive(contexts []application.ContextInfo) string {
 	if fzf.Available() {
 		selected, err := fzf.Select(items, fzf.Options{
 			Prompt:  "context> ",
-			Header:  "Select Kubernetes context",
+			Header:  header,
 			Preview: "kubecfg current --context {}",
 		})
 		if err == nil {
