@@ -114,6 +114,10 @@ func GetLastContextPath() string {
 	return filepath.Join(getDefaultGuardStateDir(), "last-context")
 }
 
+func GetGroupsPath() string {
+	return filepath.Join(getDefaultGuardStateDir(), "groups.yaml")
+}
+
 func getDefaultGuardStateDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
