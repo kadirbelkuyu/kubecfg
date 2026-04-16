@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,9 +10,11 @@ import (
 
 	"github.com/kadirbelkuyu/kubecfg/internal/application"
 	appgroupservice "github.com/kadirbelkuyu/kubecfg/internal/application/groupservice"
+	"github.com/kadirbelkuyu/kubecfg/internal/application/healthservice"
 	"github.com/kadirbelkuyu/kubecfg/internal/config"
 	"github.com/kadirbelkuyu/kubecfg/internal/infrastructure"
 	"github.com/kadirbelkuyu/kubecfg/internal/infrastructure/groupstore"
+	"github.com/kadirbelkuyu/kubecfg/internal/infrastructure/healthcheck"
 	"github.com/kadirbelkuyu/kubecfg/internal/tui"
 	"github.com/kadirbelkuyu/kubecfg/internal/ui"
 )
@@ -22,6 +25,7 @@ var (
 	groupService   *appgroupservice.Service
 	guardService   *application.GuardService
 	policyService  *application.PolicyService
+	healthSvc      *healthservice.Service
 )
 
 var rootCmd = &cobra.Command{
@@ -32,9 +36,20 @@ var rootCmd = &cobra.Command{
 		config.Init()
 		policyService = application.NewPolicyService(config.GetProfiles())
 		repo := infrastructure.NewFileRepository()
+		if kubeconfigPath == "" {
+			kubeconfigPath = config.GetKubeconfigPath()
+		}
+		config.SetKubeconfigPath(kubeconfigPath)
+
 		service = application.NewService(
 			repo,
 			application.WithPreviousContextStore(infrastructure.NewPreviousContextStore(config.GetLastContextPath())),
+		)
+		healthSvc = healthservice.New(
+			healthcheck.New(kubeconfigPath),
+			healthcheck.NewCache(),
+			repo,
+			kubeconfigPath,
 		)
 		groupService = appgroupservice.NewService(groupstore.NewFileStore(config.GetGroupsPath()), repo, kubeconfigPath)
 		runtime, err := infrastructure.NewGuardProcessRuntime("", config.GetGuardSessionPath())
@@ -56,13 +71,9 @@ var rootCmd = &cobra.Command{
 			filepath.Join(config.GetGuardStateDir(), "guard"),
 			config.GetGuardDefaultTTL(),
 		)
-		if kubeconfigPath == "" {
-			kubeconfigPath = config.GetKubeconfigPath()
-		}
-		config.SetKubeconfigPath(kubeconfigPath)
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		if err := tui.RunWithConfig(kubeconfigPath); err != nil {
+		if err := tui.RunWithConfig(kubeconfigPath, healthSvc); err != nil {
 			printError(err)
 			os.Exit(1)
 		}
@@ -71,6 +82,10 @@ var rootCmd = &cobra.Command{
 
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
+		var code exitCoder
+		if errors.As(err, &code) {
+			os.Exit(code.ExitCode())
+		}
 		os.Exit(1)
 	}
 }
