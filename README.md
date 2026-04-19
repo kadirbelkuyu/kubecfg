@@ -148,6 +148,54 @@ kubecfg guard start --ttl 30m
 - **Guard** - Start temporary readonly sessions with TTL, generated kubeconfig, and local session state
 - **Audit** - Inspect guard session history with `kubecfg audit tail`
 
+## Context Groups
+
+Organize contexts into named groups for faster navigation across environments.
+
+```bash
+# Create a group
+kubecfg group create prod --contexts eks-prod,gke-prod --color red
+
+# Switch within a group (interactive when multiple contexts exist)
+kubecfg group use prod
+
+# List all groups
+kubecfg group list
+
+# See group details
+kubecfg group show prod
+```
+
+See [docs/context-groups.md](docs/context-groups.md) for the full command reference and the `~/.kubecfg/groups.yaml` format.
+
+## Health Check
+
+Check reachability of all your clusters at once:
+
+```bash
+kubecfg status
+```
+
+Check a single cluster with detailed output:
+
+```bash
+kubecfg status production-eks
+```
+
+Watch mode re-runs checks every 10 seconds:
+
+```bash
+kubecfg status --watch
+```
+
+Use it in scripts:
+
+```bash
+kubecfg status || alert "cluster unreachable"
+```
+
+See [docs/health-check.md](docs/health-check.md) for flags, latency thresholds, TUI refresh behavior, and cache details.
+
 ## TUI Keys
 
 | Key | Action |
