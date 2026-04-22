@@ -1,6 +1,13 @@
-docs/
 .DS_Store
 dist/
+bin/
+docs/*
+!docs/
+!docs/_config.yml
+!docs/index.md
+!docs/health-check.md
+!docs/shell-completion.md
+!docs/context-groups.md
 docs/GIT_WORKFLOW.md
 docs/GIT_CHEATSHEET.md
 .gemini/

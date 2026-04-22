@@ -1,0 +1,8 @@
+title: kubecfg
+description: A fast, secure CLI tool for managing Kubernetes kubeconfig files.
+theme: minima
+
+header_pages:
+  - shell-completion.md
+  - context-groups.md
+  - health-check.md
