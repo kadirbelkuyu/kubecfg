@@ -46,6 +46,10 @@ kubecfg completion fish | source
 
 Full setup notes for Bash, Zsh, Fish, PowerShell, oh-my-zsh, zplug, and fisher live in [docs/shell-completion.md](docs/shell-completion.md).
 
+## Documentation
+
+The project docs are published with GitHub Pages at <https://kadirbelkuyu.github.io/kubecfg/>.
+
 ## fzf Integration
 
 Install `fzf` and `kubecfg` will use it automatically for context and namespace selection. To opt out:
