@@ -17,7 +17,9 @@ var removeCmd = &cobra.Command{
 	Use:   "remove [context-name]",
 	Short: "Remove a context",
 	Long:  "Delete a context and its associated entries.",
-	Args:  cobra.ExactArgs(1),
+	Example: `  kubecfg remove old-dev
+  kubecfg remove old-dev --force`,
+	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		contextName := args[0]
 
@@ -42,6 +44,6 @@ var removeCmd = &cobra.Command{
 }
 
 func init() {
-	removeCmd.Flags().BoolVarP(&removeForce, "force", "f", false, "skip confirmation")
+	removeCmd.Flags().BoolVarP(&removeForce, "force", "f", false, "skip confirmation prompt")
 	rootCmd.AddCommand(removeCmd)
 }

@@ -15,8 +15,11 @@ import (
 var nsCmd = &cobra.Command{
 	Use:   "ns [namespace]",
 	Short: "Set namespace for current context",
-	Long:  "Set the namespace for the current context. Shows interactive picker if no namespace specified.",
-	Args:  cobra.MaximumNArgs(1),
+	Long:  "Set the namespace for the current context. Omit the namespace to choose interactively.",
+	Example: `  kubecfg ns
+  kubecfg ns kube-system
+  kubecfg ns current`,
+	Args: cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		var namespace string
 
@@ -142,10 +145,11 @@ func promptNamespaceManual(currentNs string) string {
 }
 
 var nsCurrentCmd = &cobra.Command{
-	Use:   "current",
-	Short: "Show current namespace",
-	Long:  "Display the namespace of the current context.",
-	Args:  cobra.NoArgs,
+	Use:     "current",
+	Short:   "Show current namespace",
+	Long:    "Display the namespace of the current context.",
+	Example: `  kubecfg ns current`,
+	Args:    cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		contexts, err := service.ListContexts(kubeconfigPath)
 		if err != nil {

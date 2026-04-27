@@ -96,7 +96,7 @@ This keeps environment-level navigation separate from the individual kubeconfig 
 
 Context Groups and guard profiles are independent today.
 
-You can use groups to choose a target context quickly, then start a guard session with the existing guard commands for that context. A future workflow may bind group selection more directly to guard profiles, but that is not implemented yet.
+Use groups to choose a target context quickly, then start a guard session with the existing guard commands for that context.
 
 ## Edit groups.yaml Manually
 

@@ -5,7 +5,7 @@ title: kubecfg
 
 # kubecfg
 
-A CLI tool for managing Kubernetes kubeconfig files with fast context switching, namespace management, multi-config merge, readonly guard sessions, and cluster health checks.
+kubecfg is a Kubernetes kubeconfig manager with fast context switching, namespace management, context groups, health checks, guarded sessions, and policy profiles.
 
 ## Install
 
@@ -27,6 +27,15 @@ kubecfg current
 kubecfg status
 kubecfg guard start --ttl 30m
 ```
+
+## Core Commands
+
+- `kubecfg use` switches contexts directly or interactively.
+- `kubecfg ns` sets or shows the namespace for the current context.
+- `kubecfg status` checks Kubernetes API reachability.
+- `kubecfg group` manages named context groups.
+- `kubecfg policy` inspects and validates guard policy profiles.
+- `kubecfg guard` starts, inspects, and stops guarded sessions.
 
 ## Documentation
 

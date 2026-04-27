@@ -6,7 +6,9 @@ var searchCmd = &cobra.Command{
 	Use:   "search [query]",
 	Short: "Search contexts",
 	Long:  "Search contexts by name, cluster, server, or namespace.",
-	Args:  cobra.ExactArgs(1),
+	Example: `  kubecfg search prod
+  kubecfg search kube-system`,
+	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		contexts, err := service.SearchContexts(kubeconfigPath, args[0])
 		if err != nil {

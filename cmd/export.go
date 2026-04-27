@@ -14,7 +14,9 @@ var exportCmd = &cobra.Command{
 	Use:   "export [context-name]",
 	Short: "Export a context to a standalone kubeconfig",
 	Long:  "Export the specified context to a new kubeconfig file. If no context name is provided, the current context is exported.",
-	Args:  cobra.MaximumNArgs(1),
+	Example: `  kubecfg export production --output production.yaml
+  kubecfg export --output current.yaml`,
+	Args: cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		contextName := ""
 		if len(args) == 1 {
@@ -41,6 +43,6 @@ var exportCmd = &cobra.Command{
 }
 
 func init() {
-	exportCmd.Flags().StringVarP(&exportOutput, "output", "o", "", "output kubeconfig file")
+	exportCmd.Flags().StringVarP(&exportOutput, "output", "o", "", "output file (required)")
 	rootCmd.AddCommand(exportCmd)
 }

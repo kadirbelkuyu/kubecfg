@@ -21,8 +21,13 @@ var namespaceFlag string
 var useCmd = &cobra.Command{
 	Use:   "use [context-name]",
 	Short: "Switch to a context",
-	Long:  "Set the current context and optionally set the namespace.\nUse -n flag without value for interactive namespace selection.\nUse -n <namespace> to set a specific namespace.",
-	Args:  cobra.MaximumNArgs(1),
+	Long:  "Set the current context. Omit the context name to choose interactively.\nUse --namespace without a value for interactive namespace selection.",
+	Example: `  kubecfg use
+  kubecfg use production
+  kubecfg use -
+  kubecfg use production --namespace kube-system
+  kubecfg use production --namespace`,
+	Args: cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := runUse(cmd, args); err != nil {
 			printError(err)
@@ -223,7 +228,7 @@ func selectNamespaceForContext(contextName string) string {
 }
 
 func init() {
-	useCmd.Flags().StringVarP(&namespaceFlag, "namespace", "n", "", "set namespace (use -n without value for interactive selection)")
+	useCmd.Flags().StringVarP(&namespaceFlag, "namespace", "n", "", "set namespace; omit value to choose interactively")
 	useCmd.Flags().Lookup("namespace").NoOptDefVal = interactiveNamespaceValue
 	rootCmd.AddCommand(useCmd)
 }

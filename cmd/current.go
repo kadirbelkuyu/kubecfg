@@ -14,8 +14,10 @@ import (
 var currentCmd = &cobra.Command{
 	Use:   "current",
 	Short: "Show current context",
-	Long:  "Display the active context name.",
-	Args:  cobra.NoArgs,
+	Long:  "Display details for the active context, including namespace, server, and guard status.",
+	Example: `  kubecfg current
+  kubecfg current --context production`,
+	Args: cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		contexts, err := service.ListContexts(kubeconfigPath)
 		if err != nil {
@@ -105,6 +107,6 @@ func guardStatusLabel(status *application.GuardStatus, contextName string) strin
 }
 
 func init() {
-	currentCmd.Flags().StringVar(&currentContextFlag, "context", "", "show details for a specific context without switching")
+	currentCmd.Flags().StringVar(&currentContextFlag, "context", "", "show details for a context without switching")
 	rootCmd.AddCommand(currentCmd)
 }

@@ -15,7 +15,11 @@ var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all contexts",
 	Long:  "Display all available contexts with cluster details.",
-	Args:  cobra.NoArgs,
+	Example: `  kubecfg list
+  kubecfg list --current
+  kubecfg list --filter prod
+  kubecfg list --cluster eks`,
+	Args: cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		contexts, err := service.ListContexts(kubeconfigPath)
 		if err != nil {

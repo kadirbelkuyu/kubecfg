@@ -25,6 +25,7 @@ var undoCmd = &cobra.Command{
 	Aliases: []string{"rollback"},
 	Short:   "Restore kubeconfig from a backup",
 	Long:    "Restore the latest kubeconfig backup by default, or list and restore a specific backup.",
+	Example: "  kubecfg undo\n  kubecfg undo --list\n  kubecfg undo --to config.backup.20260426-120000 --force",
 	Args:    cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		if undoList && undoBackup != "" {
@@ -114,6 +115,6 @@ func confirmRestore(backupName string) bool {
 func init() {
 	undoCmd.Flags().StringVar(&undoBackup, "to", "", "restore a specific backup by file path or backup name")
 	undoCmd.Flags().BoolVar(&undoList, "list", false, "list available backups")
-	undoCmd.Flags().BoolVarP(&undoForce, "force", "f", false, "skip confirmation")
+	undoCmd.Flags().BoolVarP(&undoForce, "force", "f", false, "skip confirmation prompt")
 	rootCmd.AddCommand(undoCmd)
 }
