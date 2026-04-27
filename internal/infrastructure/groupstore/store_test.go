@@ -44,6 +44,49 @@ func TestFileStoreSaveCreatesHumanReadableYAML(t *testing.T) {
 	}
 }
 
+func TestFileStoreLoadsGroupsWithoutPolicy(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "groups.yaml")
+	data := []byte(`groups:
+  - name: prod
+    description: All production clusters
+    contexts:
+      - eks-prod
+`)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	groups, err := NewFileStore(path).List()
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(groups) != 1 {
+		t.Fatalf("List() len = %d, want 1", len(groups))
+	}
+	if groups[0].Policy != "" {
+		t.Fatalf("Policy = %q, want empty", groups[0].Policy)
+	}
+}
+
+func TestFileStoreSaveWritesPolicyWhenSet(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "groups.yaml")
+	store := NewFileStore(path)
+
+	group := testGroup("prod", "All production clusters", "red", "eks-prod")
+	group.Policy = "prod"
+	if err := store.Save(group); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if !strings.Contains(string(data), "policy: prod") {
+		t.Fatalf("groups.yaml does not contain policy:\n%s", data)
+	}
+}
+
 func TestFileStoreSaveOverwritesExistingGroupInPlace(t *testing.T) {
 	store := NewFileStore(filepath.Join(t.TempDir(), "groups.yaml"))
 

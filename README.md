@@ -19,7 +19,7 @@ It provides fast context and namespace switching, context groups, cluster health
 - Previous-context toggle with `kubecfg use -`.
 - Context groups stored in `~/.kubecfg/groups.yaml`.
 - Health checks for all contexts or a single context, with table, JSON, and YAML output.
-- Guard sessions with generated kubeconfig files, TTLs, audit logs, and policy profiles.
+- Guard sessions with generated kubeconfig files, TTLs, audit logs, policy profiles, and automatic activation from policy-bound groups.
 - Shell completions for Bash, Zsh, Fish, and PowerShell.
 
 ## Why kubecfg vs kubectx
@@ -164,15 +164,18 @@ Create named sets of contexts and switch within them.
 
 ```bash
 kubecfg group create prod --contexts eks-prod,gke-prod --color red
+kubecfg group create prod --contexts eks-prod,gke-prod --policy prod
 kubecfg group list
 kubecfg group show prod
 kubecfg group use prod
 kubecfg group add prod aks-prod
 kubecfg group remove prod old-prod
+kubecfg group set-policy prod prod
+kubecfg group unset-policy prod
 kubecfg group delete prod --force
 ```
 
-Group data is stored in `~/.kubecfg/groups.yaml`. See [docs/context-groups.md](docs/context-groups.md).
+Group data is stored in `~/.kubecfg/groups.yaml`. A group may bind a guard policy with `--policy`; using that group automatically starts Guard with the bound policy. See [docs/context-groups.md](docs/context-groups.md).
 
 ### policy
 
@@ -248,6 +251,15 @@ kubecfg policy show prod
 kubecfg guard start --ttl 30m --profile prod
 kubecfg audit tail
 ```
+
+Policy-bound groups combine the switch and guard steps:
+
+```bash
+kubecfg group create prod --contexts prod-eu,prod-us --policy prod
+kubecfg group use prod
+```
+
+If another Guard session is active, the group binding wins. For example, using a `prod` group replaces an active `debug` guard session with `prod`.
 
 ### Merge kubeconfigs safely
 

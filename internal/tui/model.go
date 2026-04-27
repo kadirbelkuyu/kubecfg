@@ -13,11 +13,14 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kadirbelkuyu/kubecfg/internal/application"
+	appgroupservice "github.com/kadirbelkuyu/kubecfg/internal/application/groupservice"
 	"github.com/kadirbelkuyu/kubecfg/internal/application/healthservice"
 	"github.com/kadirbelkuyu/kubecfg/internal/config"
 	"github.com/kadirbelkuyu/kubecfg/internal/domain"
+	domaingroup "github.com/kadirbelkuyu/kubecfg/internal/domain/group"
 	healthdomain "github.com/kadirbelkuyu/kubecfg/internal/domain/health"
 	"github.com/kadirbelkuyu/kubecfg/internal/infrastructure"
+	"github.com/kadirbelkuyu/kubecfg/internal/infrastructure/groupstore"
 	"github.com/kadirbelkuyu/kubecfg/internal/infrastructure/healthcheck"
 )
 
@@ -32,6 +35,7 @@ const (
 	ViewRemoveConfirm
 	ViewGuard
 	ViewPolicy
+	ViewGroup
 	ViewConfirmModal
 )
 
@@ -46,6 +50,7 @@ const (
 
 type Model struct {
 	service         *application.Service
+	groupService    *appgroupservice.Service
 	guardService    *application.GuardService
 	policyService   *application.PolicyService
 	currentView     View
@@ -74,6 +79,8 @@ type Model struct {
 	policies        []domain.Policy
 	policyCursor    int
 	policyUserFlags map[string]bool // name → true if user-defined
+	groups          []domaingroup.Group
+	groupCursor     int
 	// confirmation modal state
 	confirmationStore domain.ConfirmationStore
 	pendingConfirm    *domain.PendingConfirmation
@@ -98,6 +105,7 @@ func NewModel(healthSvc *healthservice.Service) (Model, error) {
 	}
 	auditStore := infrastructure.NewAuditFileStore(config.GetAuditPath())
 	auditService := application.NewAuditService(auditStore, config.IsAuditEnabled())
+	policySvc := application.NewPolicyService(config.GetProfiles())
 	guardWriter := infrastructure.NewGuardKubeconfigWriter()
 	sessionStore := infrastructure.NewSessionFileStore(config.GetGuardSessionPath())
 	sessionService := application.NewSessionService(sessionStore, runtime, guardWriter, auditService)
@@ -109,6 +117,7 @@ func NewModel(healthSvc *healthservice.Service) (Model, error) {
 		auditService,
 		filepath.Join(config.GetGuardStateDir(), "guard"),
 		config.GetGuardDefaultTTL(),
+		application.WithGuardPolicyResolver(policySvc),
 	)
 
 	ti := textinput.New()
@@ -120,7 +129,12 @@ func NewModel(healthSvc *healthservice.Service) (Model, error) {
 	input.CharLimit = 100
 	input.Width = 40
 
-	policySvc := application.NewPolicyService(config.GetProfiles())
+	groupSvc := appgroupservice.NewService(
+		groupstore.NewFileStore(config.GetGroupsPath()),
+		repo,
+		config.GetKubeconfigPath(),
+		appgroupservice.WithPolicyResolver(policySvc),
+	)
 	confirmStore := infrastructure.NewFileConfirmationStore(config.GetConfirmationsDir())
 	if healthSvc == nil {
 		healthSvc = healthservice.New(
@@ -133,6 +147,7 @@ func NewModel(healthSvc *healthservice.Service) (Model, error) {
 
 	return Model{
 		service:           service,
+		groupService:      groupSvc,
 		guardService:      guardService,
 		policyService:     policySvc,
 		confirmationStore: confirmStore,
@@ -203,6 +218,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateGuard(msg)
 		case ViewPolicy:
 			return m.updatePolicy(msg)
+		case ViewGroup:
+			return m.updateGroup(msg)
 		case ViewConfirmModal:
 			return m.updateConfirmModal(msg)
 		}
@@ -371,6 +388,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.policyUserFlags = msg.policyUserFlags
 		return m, nil
 
+	case groupsLoadedMsg:
+		if msg.err != nil {
+			m.errorMessage = msg.err.Error()
+			return m, nil
+		}
+		m.groups = msg.groups
+		if m.groupCursor >= len(m.groups) {
+			m.groupCursor = 0
+		}
+		return m, nil
+
+	case groupUsedMsg:
+		if msg.err != nil {
+			m.errorMessage = msg.err.Error()
+			return m, nil
+		}
+		m.statusMessage = msg.message
+		return m, tea.Batch(m.loadContexts, m.loadGuardStatus)
+
 	case tea.MouseMsg:
 		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
 			switch m.currentView {
@@ -404,6 +440,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case ViewGuard:
 				return m, m.selectGuardAction()
+			case ViewGroup:
+				if len(m.groups) > 0 {
+					return m, m.useGroup(m.groups[m.groupCursor])
+				}
 			}
 		}
 		if msg.Button == tea.MouseButtonWheelUp {
@@ -419,6 +459,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case ViewNamespaceSelector:
 				if m.namespaceCursor > 0 {
 					m.namespaceCursor--
+				}
+			case ViewGroup:
+				if m.groupCursor > 0 {
+					m.groupCursor--
 				}
 			}
 			return m, nil
@@ -436,6 +480,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case ViewNamespaceSelector:
 				if m.namespaceCursor < len(m.filteredNs)-1 {
 					m.namespaceCursor++
+				}
+			case ViewGroup:
+				if m.groupCursor < len(m.groups)-1 {
+					m.groupCursor++
 				}
 			}
 			return m, nil
@@ -587,6 +635,10 @@ func (m Model) selectMenuItem() (tea.Model, tea.Cmd) {
 		m.namespaceCursor = 0
 		m.resetFilter()
 		return m, m.loadNamespaces
+	case "Context Groups":
+		m.currentView = ViewGroup
+		m.groupCursor = 0
+		return m, m.loadGroups
 	case "Guard":
 		m.currentView = ViewGuard
 		m.guardCursor = 0
@@ -703,6 +755,26 @@ func (m Model) updateRemoveConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) updateGroup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, Keys.Up):
+		if m.groupCursor > 0 {
+			m.groupCursor--
+		}
+	case key.Matches(msg, Keys.Down):
+		if m.groupCursor < len(m.groups)-1 {
+			m.groupCursor++
+		}
+	case key.Matches(msg, Keys.Select):
+		if len(m.groups) > 0 {
+			return m, m.useGroup(m.groups[m.groupCursor])
+		}
+	case key.Matches(msg, Keys.Refresh):
+		return m, m.loadGroups
+	}
+	return m, nil
+}
+
 func (m Model) updateGuard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	actions := m.guardActions()
 
@@ -808,6 +880,59 @@ func (m Model) viewPolicies() string {
 	return b.String()
 }
 
+func (m Model) viewGroups() string {
+	var b strings.Builder
+
+	b.WriteString("\n " + HeaderStyle.Render(IconGroup+" Context Groups") + "\n\n")
+	if len(m.groups) == 0 {
+		b.WriteString(" " + DimItemStyle.Render("No groups found") + "\n")
+		return b.String()
+	}
+
+	maxVisible := 10
+	start := 0
+	if m.groupCursor >= maxVisible {
+		start = m.groupCursor - maxVisible + 1
+	}
+
+	end := start + maxVisible
+	if end > len(m.groups) {
+		end = len(m.groups)
+	}
+
+	for i := start; i < end; i++ {
+		g := m.groups[i]
+		line := formatGroupLine(g)
+		if i == m.groupCursor {
+			cursor := SelectedItemStyle.Render(IconCurrent)
+			_, _ = fmt.Fprintf(&b, " %s %s\n", cursor, SelectedItemStyle.Render(line))
+			continue
+		}
+		_, _ = fmt.Fprintf(&b, "   %s\n", NormalItemStyle.Render(line))
+	}
+
+	if len(m.groups) > maxVisible {
+		info := DimItemStyle.Render(fmt.Sprintf(" [%d/%d]", m.groupCursor+1, len(m.groups)))
+		b.WriteString("\n" + info)
+	}
+
+	return b.String()
+}
+
+func formatGroupLine(g domaingroup.Group) string {
+	parts := []string{
+		g.Name,
+		fmt.Sprintf("[%d]", len(g.Contexts)),
+	}
+	if g.Policy != "" {
+		parts = append(parts, "policy:"+g.Policy)
+	}
+	if g.Description != "" {
+		parts = append(parts, "- "+g.Description)
+	}
+	return strings.Join(parts, " ")
+}
+
 func (m Model) updateNamespaceSelector(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, Keys.Up):
@@ -868,6 +993,8 @@ func (m Model) View() string {
 		content.WriteString(m.viewGuard())
 	case ViewPolicy:
 		content.WriteString(m.viewPolicies())
+	case ViewGroup:
+		content.WriteString(m.viewGroups())
 	case ViewConfirmModal:
 		content.WriteString(m.viewConfirmModal())
 	}
@@ -957,6 +1084,10 @@ func (m Model) renderHelp() string {
 		addKey("[ ]", "ttl")
 		addKey("esc", "back")
 	case ViewPolicy:
+		addKey("r", "refresh")
+		addKey("esc", "back")
+	case ViewGroup:
+		addKey("enter", "use")
 		addKey("r", "refresh")
 		addKey("esc", "back")
 	case ViewConfirmModal:
@@ -1343,6 +1474,16 @@ type policiesLoadedMsg struct {
 	err             error
 }
 
+type groupsLoadedMsg struct {
+	groups []domaingroup.Group
+	err    error
+}
+
+type groupUsedMsg struct {
+	message string
+	err     error
+}
+
 func (m Model) loadPolicies() tea.Msg {
 	policies := m.policyService.ListPolicies()
 	userProfiles := config.GetProfiles()
@@ -1353,6 +1494,11 @@ func (m Model) loadPolicies() tea.Msg {
 		}
 	}
 	return policiesLoadedMsg{policies: policies, policyUserFlags: flags}
+}
+
+func (m Model) loadGroups() tea.Msg {
+	groups, err := m.groupService.List()
+	return groupsLoadedMsg{groups: groups, err: err}
 }
 
 func (m Model) loadContexts() tea.Msg {
@@ -1380,6 +1526,62 @@ func (m Model) switchContext(name string) tea.Cmd {
 			return errorMsg(err.Error())
 		}
 		return statusMsg(fmt.Sprintf("Switched to '%s'", name))
+	}
+}
+
+func (m Model) useGroup(g domaingroup.Group) tea.Cmd {
+	return func() tea.Msg {
+		resolved, missing, err := m.groupService.Resolve(g.Name)
+		if err != nil {
+			return groupUsedMsg{err: err}
+		}
+
+		contexts, err := m.service.ListContexts(config.GetKubeconfigPath())
+		if err != nil {
+			return groupUsedMsg{err: err}
+		}
+
+		available := groupContextInfos(resolved, contexts, missing)
+		if len(available) == 0 {
+			return groupUsedMsg{err: fmt.Errorf("group %q has no contexts present in your kubeconfig", resolved.Name)}
+		}
+
+		selected := available[0].Name
+		var session *domain.Session
+		var previousPolicy string
+		var hadActiveGuard bool
+		if resolved.Policy != "" {
+			status, err := m.guardService.Status()
+			if err != nil {
+				return groupUsedMsg{err: err}
+			}
+			previousPolicy, hadActiveGuard = activeGuardPolicyName(status)
+			session, err = m.guardService.StartReadonly(application.GuardStartOptions{
+				SourcePath:    config.GetKubeconfigPath(),
+				Profile:       resolved.Policy,
+				TargetContext: selected,
+				ReplaceActive: true,
+			})
+			if err != nil {
+				return groupUsedMsg{err: fmt.Errorf("activate guard for group %q with policy %q: %w", resolved.Name, resolved.Policy, err)}
+			}
+		}
+
+		if err := m.service.UseContext(config.GetKubeconfigPath(), selected, ""); err != nil {
+			if session != nil {
+				_, _ = m.guardService.Stop()
+			}
+			return groupUsedMsg{err: err}
+		}
+
+		message := fmt.Sprintf("Switched to '%s' from group '%s'", selected, resolved.Name)
+		if session != nil {
+			message = fmt.Sprintf("%s; Guard active: %s", message, session.PolicyName)
+			if hadActiveGuard && previousPolicy != session.PolicyName {
+				message = fmt.Sprintf("Guard policy changed from %s to %s because group %s requires it; %s", previousPolicy, session.PolicyName, resolved.Name, message)
+			}
+		}
+		return groupUsedMsg{message: message}
 	}
 }
 
@@ -1597,6 +1799,41 @@ func contextNames(contexts []application.ContextInfo) []string {
 		names = append(names, contextInfo.Name)
 	}
 	return names
+}
+
+func groupContextInfos(g domaingroup.Group, contexts []application.ContextInfo, missing []string) []application.ContextInfo {
+	missingSet := make(map[string]struct{}, len(missing))
+	for _, name := range missing {
+		missingSet[name] = struct{}{}
+	}
+
+	byName := make(map[string]application.ContextInfo, len(contexts))
+	for _, context := range contexts {
+		byName[context.Name] = context
+	}
+
+	filtered := make([]application.ContextInfo, 0, len(g.Contexts))
+	for _, contextName := range g.Contexts {
+		if _, isMissing := missingSet[contextName]; isMissing {
+			continue
+		}
+		context, ok := byName[contextName]
+		if ok {
+			filtered = append(filtered, context)
+		}
+	}
+
+	return filtered
+}
+
+func activeGuardPolicyName(status *application.GuardStatus) (string, bool) {
+	if status == nil || !status.Active || status.Session == nil {
+		return "", false
+	}
+	if status.Session.PolicyName != "" {
+		return status.Session.PolicyName, true
+	}
+	return "readonly", true
 }
 
 func formatGuardDuration(value time.Duration) string {
