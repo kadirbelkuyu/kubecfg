@@ -2,6 +2,8 @@ package groupservice
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/kadirbelkuyu/kubecfg/internal/domain"
@@ -72,6 +74,22 @@ func (m *mockKubeConfigRepository) GetDefaultPath() string {
 	return "/tmp/config"
 }
 
+type mockPolicyResolver struct {
+	policies map[string]*domain.Policy
+}
+
+func (m mockPolicyResolver) GetPolicy(name string) (*domain.Policy, error) {
+	policy, ok := m.policies[name]
+	if !ok {
+		return nil, fmt.Errorf("unknown policy")
+	}
+	return policy, nil
+}
+
+func (m mockPolicyResolver) ValidatePolicy(policy *domain.Policy) error {
+	return policy.Validate()
+}
+
 func TestCreateRejectsUnknownContextNames(t *testing.T) {
 	service := newTestGroupService(nil, []string{"prod"})
 
@@ -82,6 +100,67 @@ func TestCreateRejectsUnknownContextNames(t *testing.T) {
 	}
 	if len(missingErr.Names) != 1 || missingErr.Names[0] != "missing" {
 		t.Fatalf("missing contexts = %v, want [missing]", missingErr.Names)
+	}
+}
+
+func TestCreateStoresPolicyWhenPolicyExists(t *testing.T) {
+	service := newTestGroupServiceWithPolicies(nil, []string{"prod"}, map[string]*domain.Policy{
+		"prod": {Name: "prod", Readonly: true},
+	})
+
+	err := service.Create(domaingroup.Group{Name: "prod-team", Contexts: []string{"prod"}, Policy: "prod"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	g, err := service.Get("prod-team")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if g.Policy != "prod" {
+		t.Fatalf("Policy = %q, want prod", g.Policy)
+	}
+}
+
+func TestCreateRejectsUnknownPolicy(t *testing.T) {
+	service := newTestGroupServiceWithPolicies(nil, []string{"prod"}, map[string]*domain.Policy{
+		"staging": {Name: "staging"},
+	})
+
+	err := service.Create(domaingroup.Group{Name: "prod-team", Contexts: []string{"prod"}, Policy: "missing"})
+	if err == nil {
+		t.Fatal("Create() error = nil, want unknown policy error")
+	}
+	if !strings.Contains(err.Error(), "unknown group policy") {
+		t.Fatalf("Create() error = %q, want unknown policy message", err.Error())
+	}
+}
+
+func TestSetAndUnsetPolicy(t *testing.T) {
+	service := newTestGroupServiceWithPolicies([]domaingroup.Group{{Name: "prod", Contexts: []string{"prod"}}}, []string{"prod"}, map[string]*domain.Policy{
+		"prod": {Name: "prod", Readonly: true},
+	})
+
+	if err := service.SetPolicy("prod", "prod"); err != nil {
+		t.Fatalf("SetPolicy() error = %v", err)
+	}
+	g, err := service.Get("prod")
+	if err != nil {
+		t.Fatalf("Get() after SetPolicy error = %v", err)
+	}
+	if g.Policy != "prod" {
+		t.Fatalf("Policy after SetPolicy = %q, want prod", g.Policy)
+	}
+
+	if err := service.UnsetPolicy("prod"); err != nil {
+		t.Fatalf("UnsetPolicy() error = %v", err)
+	}
+	g, err = service.Get("prod")
+	if err != nil {
+		t.Fatalf("Get() after UnsetPolicy error = %v", err)
+	}
+	if g.Policy != "" {
+		t.Fatalf("Policy after UnsetPolicy = %q, want empty", g.Policy)
 	}
 }
 
@@ -134,6 +213,16 @@ func TestResolveReturnsMissingContextsSeparately(t *testing.T) {
 func newTestGroupService(groups []domaingroup.Group, contexts []string) *Service {
 	store := &mockGroupStore{groups: append([]domaingroup.Group(nil), groups...)}
 	return NewService(store, &mockKubeConfigRepository{config: kubeConfigWithContexts(contexts...)}, "/tmp/config")
+}
+
+func newTestGroupServiceWithPolicies(groups []domaingroup.Group, contexts []string, policies map[string]*domain.Policy) *Service {
+	store := &mockGroupStore{groups: append([]domaingroup.Group(nil), groups...)}
+	return NewService(
+		store,
+		&mockKubeConfigRepository{config: kubeConfigWithContexts(contexts...)},
+		"/tmp/config",
+		WithPolicyResolver(mockPolicyResolver{policies: policies}),
+	)
 }
 
 func kubeConfigWithContexts(names ...string) *domain.KubeConfig {

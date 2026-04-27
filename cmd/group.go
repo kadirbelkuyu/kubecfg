@@ -9,6 +9,7 @@ import (
 
 	"github.com/kadirbelkuyu/kubecfg/internal/application"
 	appgroupservice "github.com/kadirbelkuyu/kubecfg/internal/application/groupservice"
+	"github.com/kadirbelkuyu/kubecfg/internal/domain"
 	domaingroup "github.com/kadirbelkuyu/kubecfg/internal/domain/group"
 	"github.com/kadirbelkuyu/kubecfg/internal/ui"
 )
@@ -17,6 +18,7 @@ var (
 	groupCreateContexts    []string
 	groupCreateDescription string
 	groupCreateColor       string
+	groupCreatePolicy      string
 	groupListWide          bool
 	groupDeleteForce       bool
 )
@@ -26,6 +28,7 @@ var groupCmd = &cobra.Command{
 	Short: "Manage context groups",
 	Long:  "Create, inspect, and use named groups of kubeconfig contexts.",
 	Example: `  kubecfg group create prod --contexts eks-prod,gke-prod --color red
+  kubecfg group create prod --contexts eks-prod,gke-prod --policy prod
   kubecfg group list
   kubecfg group use prod`,
 }
@@ -34,10 +37,11 @@ var groupCreateCmd = &cobra.Command{
 	Use:   "create <name>",
 	Short: "Create a context group",
 	Example: `  kubecfg group create prod --contexts eks-prod,gke-prod
-  kubecfg group create staging --contexts aks-stage --description "Staging clusters"`,
+  kubecfg group create staging --contexts aks-stage --description "Staging clusters"
+  kubecfg group create prod --contexts eks-prod,gke-prod --policy prod`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		if err := runGroupCreate(args[0], groupCreateContexts, groupCreateDescription, groupCreateColor); err != nil {
+		if err := runGroupCreate(args[0], groupCreateContexts, groupCreateDescription, groupCreateColor, groupCreatePolicy); err != nil {
 			printError(err)
 		}
 	},
@@ -128,16 +132,46 @@ var groupRenameCmd = &cobra.Command{
 	},
 }
 
-func runGroupCreate(name string, contexts []string, description, color string) error {
+var groupSetPolicyCmd = &cobra.Command{
+	Use:     "set-policy <group-name> <policy-name>",
+	Short:   "Bind a policy profile to a context group",
+	Example: `  kubecfg group set-policy prod prod`,
+	Args:    cobra.ExactArgs(2),
+	Run: func(cmd *cobra.Command, args []string) {
+		if err := runGroupSetPolicy(args[0], args[1]); err != nil {
+			printError(err)
+		}
+	},
+}
+
+var groupUnsetPolicyCmd = &cobra.Command{
+	Use:     "unset-policy <group-name>",
+	Short:   "Remove a policy binding from a context group",
+	Example: `  kubecfg group unset-policy prod`,
+	Args:    cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		if err := runGroupUnsetPolicy(args[0]); err != nil {
+			printError(err)
+		}
+	},
+}
+
+func runGroupCreate(name string, contexts []string, description, color, policy string) error {
 	g := domaingroup.Group{
 		Name:        strings.TrimSpace(name),
 		Description: description,
+		Policy:      policy,
 		Contexts:    append([]string(nil), contexts...),
 		Color:       color,
 	}
 
 	if err := groupService.Create(g); err != nil {
 		return formatGroupError(err, name, "")
+	}
+
+	if strings.TrimSpace(policy) != "" {
+		printSuccess(fmt.Sprintf("Group \"%s\" created with %d contexts and policy \"%s\".", g.Name, len(g.Contexts), strings.TrimSpace(policy)))
+		return nil
 	}
 
 	printSuccess(fmt.Sprintf("Group \"%s\" created with %d contexts.", g.Name, len(g.Contexts)))
@@ -226,11 +260,30 @@ func runGroupUse(name string) error {
 		}
 	}
 
+	var guardSession *domain.Session
+	var previousPolicy string
+	var hadActiveGuard bool
+	if g.Policy != "" {
+		guardSession, previousPolicy, hadActiveGuard, err = startGroupGuard(g, selected)
+		if err != nil {
+			return err
+		}
+	}
+
 	if err := service.UseContext(kubeconfigPath, selected, ""); err != nil {
+		if guardSession != nil {
+			_, _ = guardService.Stop()
+		}
 		return err
 	}
 
 	printSuccess(fmt.Sprintf("Switched to context \"%s\" (group: %s)", selected, g.Name))
+	if guardSession != nil {
+		if hadActiveGuard && previousPolicy != guardSession.PolicyName {
+			printInfo(fmt.Sprintf("Guard policy changed from %s to %s because group %s requires it", previousPolicy, guardSession.PolicyName, g.Name))
+		}
+		printSuccess(fmt.Sprintf("Guard activated with policy %s", guardSession.PolicyName))
+	}
 	return nil
 }
 
@@ -241,6 +294,53 @@ func runGroupRename(oldName, newName string) error {
 
 	printSuccess(fmt.Sprintf("Group \"%s\" renamed to \"%s\".", oldName, newName))
 	return nil
+}
+
+func runGroupSetPolicy(groupName, policyName string) error {
+	if err := groupService.SetPolicy(groupName, policyName); err != nil {
+		return formatGroupError(err, groupName, "")
+	}
+
+	printSuccess(fmt.Sprintf("Policy \"%s\" bound to group \"%s\".", strings.TrimSpace(policyName), groupName))
+	return nil
+}
+
+func runGroupUnsetPolicy(groupName string) error {
+	if err := groupService.UnsetPolicy(groupName); err != nil {
+		return formatGroupError(err, groupName, "")
+	}
+
+	printSuccess(fmt.Sprintf("Policy binding removed from group \"%s\".", groupName))
+	return nil
+}
+
+func startGroupGuard(g domaingroup.Group, contextName string) (*domain.Session, string, bool, error) {
+	status, err := guardService.Status()
+	if err != nil {
+		return nil, "", false, err
+	}
+	previousPolicy, wasActive := activeGuardPolicy(status)
+
+	session, err := guardService.StartReadonly(application.GuardStartOptions{
+		SourcePath:    kubeconfigPath,
+		Profile:       g.Policy,
+		TargetContext: contextName,
+		ReplaceActive: true,
+	})
+	if err != nil {
+		return nil, "", false, fmt.Errorf("activate guard for group %q with policy %q: %w", g.Name, g.Policy, err)
+	}
+	return session, previousPolicy, wasActive, nil
+}
+
+func activeGuardPolicy(status *application.GuardStatus) (string, bool) {
+	if status == nil || !status.Active || status.Session == nil {
+		return "", false
+	}
+	if status.Session.PolicyName != "" {
+		return status.Session.PolicyName, true
+	}
+	return "readonly", true
 }
 
 func formatGroupError(err error, groupName, contextName string) error {
@@ -272,21 +372,28 @@ func renderGroupTable(groups []domaingroup.Group, wide bool) string {
 	var output strings.Builder
 
 	if wide {
-		_, _ = fmt.Fprintf(&output, "  %-20s  %-8s  %-80s\n", ui.Header("NAME"), ui.Header("CONTEXTS"), ui.Header("MEMBERS"))
-		_, _ = fmt.Fprintf(&output, "  %s\n", strings.Repeat("─", 116))
+		_, _ = fmt.Fprintf(&output, "  %-20s  %-8s  %-12s  %-80s\n", ui.Header("NAME"), ui.Header("CONTEXTS"), ui.Header("POLICY"), ui.Header("MEMBERS"))
+		_, _ = fmt.Fprintf(&output, "  %s\n", strings.Repeat("─", 130))
 		for _, g := range groups {
-			_, _ = fmt.Fprintf(&output, "  %-20s  %-8d  %-80s\n", g.Name, len(g.Contexts), strings.Join(g.Contexts, ", "))
+			_, _ = fmt.Fprintf(&output, "  %-20s  %-8d  %-12s  %-80s\n", g.Name, len(g.Contexts), displayGroupPolicy(g.Policy), strings.Join(g.Contexts, ", "))
 		}
 		return output.String()
 	}
 
-	_, _ = fmt.Fprintf(&output, "  %-20s  %-8s  %-40s\n", ui.Header("NAME"), ui.Header("CONTEXTS"), ui.Header("DESCRIPTION"))
-	_, _ = fmt.Fprintf(&output, "  %s\n", strings.Repeat("─", 74))
+	_, _ = fmt.Fprintf(&output, "  %-20s  %-8s  %-12s  %-40s\n", ui.Header("NAME"), ui.Header("CONTEXTS"), ui.Header("POLICY"), ui.Header("DESCRIPTION"))
+	_, _ = fmt.Fprintf(&output, "  %s\n", strings.Repeat("─", 88))
 	for _, g := range groups {
-		_, _ = fmt.Fprintf(&output, "  %-20s  %-8d  %-40s\n", g.Name, len(g.Contexts), g.Description)
+		_, _ = fmt.Fprintf(&output, "  %-20s  %-8d  %-12s  %-40s\n", g.Name, len(g.Contexts), displayGroupPolicy(g.Policy), g.Description)
 	}
 
 	return output.String()
+}
+
+func displayGroupPolicy(policy string) string {
+	if strings.TrimSpace(policy) == "" {
+		return "-"
+	}
+	return policy
 }
 
 func renderGroupDetails(g domaingroup.Group, missing []string) string {
@@ -299,6 +406,7 @@ func renderGroupDetails(g domaingroup.Group, missing []string) string {
 	_, _ = fmt.Fprintf(&output, "Group: %s\n", g.Name)
 	_, _ = fmt.Fprintf(&output, "Description: %s\n", g.Description)
 	_, _ = fmt.Fprintf(&output, "Color: %s\n", g.Color)
+	_, _ = fmt.Fprintf(&output, "Policy: %s\n", displayGroupPolicy(g.Policy))
 	_, _ = fmt.Fprintf(&output, "Contexts (%d):\n", len(g.Contexts))
 
 	for _, contextName := range g.Contexts {
@@ -349,6 +457,7 @@ func init() {
 	groupCreateCmd.Flags().StringSliceVar(&groupCreateContexts, "contexts", nil, "comma-separated context names")
 	groupCreateCmd.Flags().StringVar(&groupCreateDescription, "description", "", "group description")
 	groupCreateCmd.Flags().StringVar(&groupCreateColor, "color", "", "TUI color hint: red|yellow|green|blue|cyan|magenta")
+	groupCreateCmd.Flags().StringVar(&groupCreatePolicy, "policy", "", "policy profile to activate when using the group")
 	_ = groupCreateCmd.MarkFlagRequired("contexts")
 
 	groupListCmd.Flags().BoolVar(&groupListWide, "wide", false, "show group members")
@@ -362,6 +471,8 @@ func init() {
 	groupCmd.AddCommand(groupDeleteCmd)
 	groupCmd.AddCommand(groupUseCmd)
 	groupCmd.AddCommand(groupRenameCmd)
+	groupCmd.AddCommand(groupSetPolicyCmd)
+	groupCmd.AddCommand(groupUnsetPolicyCmd)
 
 	rootCmd.AddCommand(groupCmd)
 }

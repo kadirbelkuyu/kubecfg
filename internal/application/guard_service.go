@@ -12,9 +12,11 @@ import (
 )
 
 type GuardStartOptions struct {
-	SourcePath string
-	TTL        time.Duration
-	Profile    domain.PolicyProfile
+	SourcePath    string
+	TTL           time.Duration
+	Profile       domain.PolicyProfile
+	TargetContext string
+	ReplaceActive bool
 }
 
 type GuardStatus struct {
@@ -34,9 +36,22 @@ type GuardService struct {
 	writer       domain.GuardedKubeconfigWriter
 	runtime      domain.GuardRuntime
 	audit        *AuditService
+	policies     guardPolicyResolver
 	artifactsDir string
 	defaultTTL   time.Duration
 	now          func() time.Time
+}
+
+type guardPolicyResolver interface {
+	GetPolicy(name string) (*domain.Policy, error)
+}
+
+type GuardServiceOption func(*GuardService)
+
+func WithGuardPolicyResolver(resolver guardPolicyResolver) GuardServiceOption {
+	return func(service *GuardService) {
+		service.policies = resolver
+	}
 }
 
 func NewGuardService(
@@ -47,8 +62,9 @@ func NewGuardService(
 	audit *AuditService,
 	artifactsDir string,
 	defaultTTL time.Duration,
+	options ...GuardServiceOption,
 ) *GuardService {
-	return &GuardService{
+	service := &GuardService{
 		repo:         repo,
 		sessionSvc:   sessionSvc,
 		writer:       writer,
@@ -58,10 +74,15 @@ func NewGuardService(
 		defaultTTL:   defaultTTL,
 		now:          time.Now,
 	}
+	for _, option := range options {
+		option(service)
+	}
+
+	return service
 }
 
 func (s *GuardService) StartReadonly(options GuardStartOptions) (*domain.Session, error) {
-	if err := s.sessionSvc.PrepareForStart(); err != nil {
+	if err := s.sessionSvc.PrepareForStart(options.ReplaceActive); err != nil {
 		return nil, err
 	}
 
@@ -78,7 +99,7 @@ func (s *GuardService) StartReadonly(options GuardStartOptions) (*domain.Session
 		return nil, fmt.Errorf("guard ttl must be greater than zero")
 	}
 
-	contextName, namespace, err := s.resolveTargetContext(options.SourcePath)
+	contextName, namespace, err := s.resolveTargetContext(options.SourcePath, options.TargetContext)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +178,7 @@ func (s *GuardService) Stop() (*domain.Session, error) {
 	return s.sessionSvc.Stop()
 }
 
-func (s *GuardService) resolveTargetContext(sourcePath string) (string, string, error) {
+func (s *GuardService) resolveTargetContext(sourcePath, targetContext string) (string, string, error) {
 	if !s.repo.Exists(sourcePath) {
 		return "", "", domain.ErrConfigNotFound
 	}
@@ -167,11 +188,14 @@ func (s *GuardService) resolveTargetContext(sourcePath string) (string, string, 
 		return "", "", fmt.Errorf("load kubeconfig: %w", err)
 	}
 
-	if config.CurrentContext == "" {
+	if targetContext == "" {
+		targetContext = config.CurrentContext
+	}
+	if targetContext == "" {
 		return "", "", domain.ErrNoCurrentContext
 	}
 
-	contextEntry, idx := config.FindContext(config.CurrentContext)
+	contextEntry, idx := config.FindContext(targetContext)
 	if idx < 0 {
 		return "", "", domain.ErrContextNotFound
 	}
@@ -192,7 +216,7 @@ func (s *GuardService) resolvePolicy(profile domain.PolicyProfile) (readonly boo
 	if profile == "" {
 		return true, domain.GuardModeReadonly, nil
 	}
-	p, err := domain.FindProfile(profile)
+	p, err := s.findPolicy(profile)
 	if err != nil {
 		return false, "", err
 	}
@@ -200,6 +224,13 @@ func (s *GuardService) resolvePolicy(profile domain.PolicyProfile) (readonly boo
 		return true, domain.GuardModeReadonly, nil
 	}
 	return false, domain.GuardModePolicy, nil
+}
+
+func (s *GuardService) findPolicy(profile domain.PolicyProfile) (*domain.Policy, error) {
+	if s.policies != nil {
+		return s.policies.GetPolicy(profile)
+	}
+	return domain.FindProfile(profile)
 }
 
 type SessionService struct {
@@ -293,7 +324,7 @@ func (s *SessionService) Status() (*GuardStatus, error) {
 	return status, nil
 }
 
-func (s *SessionService) PrepareForStart() error {
+func (s *SessionService) PrepareForStart(replaceActive bool) error {
 	status, err := s.Status()
 	if err != nil {
 		return err
@@ -303,7 +334,7 @@ func (s *SessionService) PrepareForStart() error {
 		return nil
 	}
 
-	if status.Active {
+	if status.Active && !replaceActive {
 		return fmt.Errorf("%w: %s", domain.ErrGuardSessionActive, status.Session.ID)
 	}
 
