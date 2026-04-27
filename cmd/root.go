@@ -31,7 +31,12 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "kubecfg",
 	Short: "Manage kubeconfig files",
-	Long:  "Add, remove, merge and switch between Kubernetes contexts.\n\nRun without arguments to launch the interactive TUI.",
+	Long:  "Manage Kubernetes kubeconfig contexts, namespaces, groups, health checks, and guarded sessions.\n\nRun without arguments to launch the interactive TUI.",
+	Example: `  kubecfg
+  kubecfg use production
+  kubecfg ns kube-system
+  kubecfg status
+  kubecfg guard start --ttl 30m --profile prod`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		config.Init()
 		policyService = application.NewPolicyService(config.GetProfiles())
@@ -92,7 +97,7 @@ func Execute() {
 
 func init() {
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
-	rootCmd.PersistentFlags().StringVar(&kubeconfigPath, "kubeconfig", "", "path to kubeconfig file")
+	rootCmd.PersistentFlags().StringVar(&kubeconfigPath, "kubeconfig", "", "path to the kubeconfig file")
 }
 
 func printError(err error) {

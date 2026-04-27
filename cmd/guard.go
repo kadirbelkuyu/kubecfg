@@ -18,7 +18,7 @@ import (
 var (
 	guardTTL        time.Duration
 	guardProfile    string
-	guardPolicyFlag string // --policy, alias for --profile
+	guardPolicyFlag string
 	guardProxyID    string
 	guardProxyPath  string
 )
@@ -26,15 +26,22 @@ var (
 var guardCmd = &cobra.Command{
 	Use:   "guard",
 	Short: "Manage guarded Kubernetes sessions",
-	Long:  "Start, stop, and inspect readonly guarded Kubernetes sessions.",
+	Long:  "Start, stop, and inspect guarded Kubernetes sessions that route requests through a local policy proxy.",
+	Example: `  kubecfg guard start --ttl 30m
+  kubecfg guard start --profile prod
+  kubecfg guard status
+  kubecfg guard stop`,
 }
 
 var guardStartCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Start a guarded Kubernetes session",
-	Args:  cobra.NoArgs,
+	Long:  "Start a guarded session for the current context and print the generated kubeconfig path.",
+	Example: `  kubecfg guard start --ttl 30m
+  kubecfg guard start --profile prod
+  kubecfg guard start --policy staging`,
+	Args: cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
-		// --policy is an alias for --profile; --profile takes precedence when both are given.
 		profile := guardProfile
 		if profile == "" {
 			profile = guardPolicyFlag
@@ -67,9 +74,10 @@ var guardStartCmd = &cobra.Command{
 }
 
 var guardStopCmd = &cobra.Command{
-	Use:   "stop",
-	Short: "Stop the active guard session",
-	Args:  cobra.NoArgs,
+	Use:     "stop",
+	Short:   "Stop the active guard session",
+	Example: `  kubecfg guard stop`,
+	Args:    cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		session, err := guardService.Stop()
 		if err != nil {
@@ -86,9 +94,10 @@ var guardStopCmd = &cobra.Command{
 }
 
 var guardStatusCmd = &cobra.Command{
-	Use:   "status",
-	Short: "Show the current guard session status",
-	Args:  cobra.NoArgs,
+	Use:     "status",
+	Short:   "Show the current guard session status",
+	Example: `  kubecfg guard status`,
+	Args:    cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		status, err := guardService.Status()
 		if err != nil {
@@ -133,11 +142,11 @@ var guardProxyCmd = &cobra.Command{
 }
 
 func init() {
-	guardStartCmd.Flags().DurationVar(&guardTTL, "ttl", 0, "guard session ttl, for example 30m or 1h")
-	guardStartCmd.Flags().StringVar(&guardProfile, "profile", "", "policy profile to apply (prod, staging, debug)")
-	guardStartCmd.Flags().StringVar(&guardPolicyFlag, "policy", "", "policy profile to apply (alias for --profile)")
-	guardProxyCmd.Flags().StringVar(&guardProxyID, "session-id", "", "guard session id")
-	guardProxyCmd.Flags().StringVar(&guardProxyPath, "session-file", "", "guard session file path")
+	guardStartCmd.Flags().DurationVar(&guardTTL, "ttl", 0, "session TTL, for example 30m or 1h")
+	guardStartCmd.Flags().StringVar(&guardProfile, "profile", "", "policy profile: prod, staging, debug")
+	guardStartCmd.Flags().StringVar(&guardPolicyFlag, "policy", "", "policy profile alias for --profile")
+	guardProxyCmd.Flags().StringVar(&guardProxyID, "session-id", "", "guard session ID")
+	guardProxyCmd.Flags().StringVar(&guardProxyPath, "session-file", "", "guard session file")
 	_ = guardProxyCmd.Flags().MarkHidden("session-id")
 	_ = guardProxyCmd.Flags().MarkHidden("session-file")
 

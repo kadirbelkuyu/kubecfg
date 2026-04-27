@@ -14,6 +14,7 @@ var validateCmd = &cobra.Command{
 	Use:           "validate [file]",
 	Short:         "Validate a kubeconfig file",
 	Long:          "Validate the kubeconfig structure and report broken references, duplicate entries, and missing required fields.",
+	Example:       "  kubecfg validate\n  kubecfg validate ./merged.yaml",
 	Args:          cobra.MaximumNArgs(1),
 	SilenceUsage:  true,
 	SilenceErrors: true,

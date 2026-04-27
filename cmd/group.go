@@ -25,12 +25,17 @@ var groupCmd = &cobra.Command{
 	Use:   "group",
 	Short: "Manage context groups",
 	Long:  "Create, inspect, and use named groups of kubeconfig contexts.",
+	Example: `  kubecfg group create prod --contexts eks-prod,gke-prod --color red
+  kubecfg group list
+  kubecfg group use prod`,
 }
 
 var groupCreateCmd = &cobra.Command{
 	Use:   "create <name>",
 	Short: "Create a context group",
-	Args:  cobra.ExactArgs(1),
+	Example: `  kubecfg group create prod --contexts eks-prod,gke-prod
+  kubecfg group create staging --contexts aks-stage --description "Staging clusters"`,
+	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := runGroupCreate(args[0], groupCreateContexts, groupCreateDescription, groupCreateColor); err != nil {
 			printError(err)
@@ -41,7 +46,9 @@ var groupCreateCmd = &cobra.Command{
 var groupListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List context groups",
-	Args:  cobra.NoArgs,
+	Example: `  kubecfg group list
+  kubecfg group list --wide`,
+	Args: cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := runGroupList(groupListWide); err != nil {
 			printError(err)
@@ -50,9 +57,10 @@ var groupListCmd = &cobra.Command{
 }
 
 var groupShowCmd = &cobra.Command{
-	Use:   "show <name>",
-	Short: "Show a context group",
-	Args:  cobra.ExactArgs(1),
+	Use:     "show <name>",
+	Short:   "Show a context group",
+	Example: `  kubecfg group show prod`,
+	Args:    cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := runGroupShow(args[0]); err != nil {
 			printError(err)
@@ -61,9 +69,10 @@ var groupShowCmd = &cobra.Command{
 }
 
 var groupAddCmd = &cobra.Command{
-	Use:   "add <group-name> <context-name>",
-	Short: "Add a context to a group",
-	Args:  cobra.ExactArgs(2),
+	Use:     "add <group-name> <context-name>",
+	Short:   "Add a context to a group",
+	Example: `  kubecfg group add prod eks-prod`,
+	Args:    cobra.ExactArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := runGroupAdd(args[0], args[1]); err != nil {
 			printError(err)
@@ -72,9 +81,10 @@ var groupAddCmd = &cobra.Command{
 }
 
 var groupRemoveCmd = &cobra.Command{
-	Use:   "remove <group-name> <context-name>",
-	Short: "Remove a context from a group",
-	Args:  cobra.ExactArgs(2),
+	Use:     "remove <group-name> <context-name>",
+	Short:   "Remove a context from a group",
+	Example: `  kubecfg group remove prod old-prod`,
+	Args:    cobra.ExactArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := runGroupRemove(args[0], args[1]); err != nil {
 			printError(err)
@@ -83,9 +93,10 @@ var groupRemoveCmd = &cobra.Command{
 }
 
 var groupDeleteCmd = &cobra.Command{
-	Use:   "delete <name>",
-	Short: "Delete a context group",
-	Args:  cobra.ExactArgs(1),
+	Use:     "delete <name>",
+	Short:   "Delete a context group",
+	Example: `  kubecfg group delete prod --force`,
+	Args:    cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := runGroupDelete(args[0], groupDeleteForce); err != nil {
 			printError(err)
@@ -94,9 +105,10 @@ var groupDeleteCmd = &cobra.Command{
 }
 
 var groupUseCmd = &cobra.Command{
-	Use:   "use <name>",
-	Short: "Switch to a context from a group",
-	Args:  cobra.ExactArgs(1),
+	Use:     "use <name>",
+	Short:   "Switch to a context from a group",
+	Example: `  kubecfg group use prod`,
+	Args:    cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := runGroupUse(args[0]); err != nil {
 			printError(err)
@@ -105,9 +117,10 @@ var groupUseCmd = &cobra.Command{
 }
 
 var groupRenameCmd = &cobra.Command{
-	Use:   "rename <old-name> <new-name>",
-	Short: "Rename a context group",
-	Args:  cobra.ExactArgs(2),
+	Use:     "rename <old-name> <new-name>",
+	Short:   "Rename a context group",
+	Example: `  kubecfg group rename prod production`,
+	Args:    cobra.ExactArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := runGroupRename(args[0], args[1]); err != nil {
 			printError(err)
@@ -333,8 +346,8 @@ func printMissingGroupContexts(groupName string, missing []string) {
 }
 
 func init() {
-	groupCreateCmd.Flags().StringSliceVar(&groupCreateContexts, "contexts", nil, "comma-separated list of context names")
-	groupCreateCmd.Flags().StringVar(&groupCreateDescription, "description", "", "human-readable description")
+	groupCreateCmd.Flags().StringSliceVar(&groupCreateContexts, "contexts", nil, "comma-separated context names")
+	groupCreateCmd.Flags().StringVar(&groupCreateDescription, "description", "", "group description")
 	groupCreateCmd.Flags().StringVar(&groupCreateColor, "color", "", "TUI color hint: red|yellow|green|blue|cyan|magenta")
 	_ = groupCreateCmd.MarkFlagRequired("contexts")
 

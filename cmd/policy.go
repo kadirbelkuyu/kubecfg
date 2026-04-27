@@ -15,14 +15,19 @@ import (
 
 var policyCmd = &cobra.Command{
 	Use:   "policy",
-	Short: "Manage and inspect guard policy profiles",
+	Short: "Manage guard policy profiles",
 	Long:  "List, inspect, validate, and scaffold policy profiles for kubecfg guard sessions.",
+	Example: `  kubecfg policy list
+  kubecfg policy show prod
+  kubecfg policy init
+  kubecfg policy validate`,
 }
 
 var policyListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List all available policy profiles",
-	Args:  cobra.NoArgs,
+	Use:     "list",
+	Short:   "List policy profiles",
+	Example: `  kubecfg policy list`,
+	Args:    cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		policies := policyService.ListPolicies()
 		userProfiles := config.GetProfiles()
@@ -57,8 +62,10 @@ var policyListCmd = &cobra.Command{
 
 var policyShowCmd = &cobra.Command{
 	Use:   "show <name>",
-	Short: "Show full details for a policy profile",
-	Args:  cobra.ExactArgs(1),
+	Short: "Show policy profile details",
+	Example: `  kubecfg policy show prod
+  kubecfg policy show staging`,
+	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		name := args[0]
 		p, err := policyService.GetPolicy(name)
@@ -103,10 +110,11 @@ var policyShowCmd = &cobra.Command{
 }
 
 var policyInitCmd = &cobra.Command{
-	Use:   "init",
-	Short: "Generate a sample ~/.kubecfg/config.yaml",
-	Long:  "Writes a commented sample config file. Does not overwrite an existing file.",
-	Args:  cobra.NoArgs,
+	Use:     "init",
+	Short:   "Generate a sample config file",
+	Long:    "Write a sample ~/.kubecfg/config.yaml file without overwriting an existing file.",
+	Example: `  kubecfg policy init`,
+	Args:    cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -136,9 +144,11 @@ var policyInitCmd = &cobra.Command{
 }
 
 var policyValidateCmd = &cobra.Command{
-	Use:   "validate",
-	Short: "Validate user-defined profiles in ~/.kubecfg/config.yaml",
-	Args:  cobra.NoArgs,
+	Use:     "validate",
+	Short:   "Validate user-defined profiles",
+	Long:    "Validate policy profiles defined in ~/.kubecfg/config.yaml.",
+	Example: `  kubecfg policy validate`,
+	Args:    cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		userProfiles := config.GetProfiles()
 		if len(userProfiles) == 0 {
@@ -163,8 +173,6 @@ var policyValidateCmd = &cobra.Command{
 	},
 }
 
-// configProfileToDomainPolicy converts a config.ProfileConfig to a domain.Policy
-// for the purpose of validation and display.
 func configProfileToDomainPolicy(name string, cfg config.ProfileConfig) *domain.Policy {
 	return &domain.Policy{
 		Name:                name,
@@ -223,9 +231,11 @@ var policyCreateFrom string
 
 var policyCreateCmd = &cobra.Command{
 	Use:   "create <name>",
-	Short: "Create a custom policy profile based on an existing one",
-	Long:  "Scaffolds a new profile section in ~/.kubecfg/config.yaml derived from an existing profile.",
-	Args:  cobra.ExactArgs(1),
+	Short: "Create a custom policy profile",
+	Long:  "Print a new profile snippet derived from an existing profile.",
+	Example: `  kubecfg policy create restricted --from prod
+  kubecfg policy create qa --from staging`,
+	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		name := args[0]
 
@@ -294,7 +304,7 @@ func yamlStringSlice(items []string) string {
 }
 
 func init() {
-	policyCreateCmd.Flags().StringVar(&policyCreateFrom, "from", "staging", "base profile to derive from (prod, staging, debug)")
+	policyCreateCmd.Flags().StringVar(&policyCreateFrom, "from", "staging", "base profile: prod, staging, debug")
 	policyCmd.AddCommand(policyListCmd)
 	policyCmd.AddCommand(policyShowCmd)
 	policyCmd.AddCommand(policyInitCmd)

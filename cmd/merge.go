@@ -13,7 +13,9 @@ var mergeCmd = &cobra.Command{
 	Use:   "merge [files...]",
 	Short: "Merge kubeconfig files",
 	Long:  "Combine multiple kubeconfig files into one.\nChoose how name conflicts are handled with --on-conflict: skip, overwrite, rename, fail.",
-	Args:  cobra.MinimumNArgs(2),
+	Example: `  kubecfg merge prod.yaml staging.yaml --output merged.yaml
+  kubecfg merge east.yaml west.yaml --on-conflict rename`,
+	Args: cobra.MinimumNArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
 		outputPath := mergeOutput
 		if outputPath == "" {
@@ -30,7 +32,7 @@ var mergeCmd = &cobra.Command{
 }
 
 func init() {
-	mergeCmd.Flags().StringVarP(&mergeOutput, "output", "o", "", "output file path")
+	mergeCmd.Flags().StringVarP(&mergeOutput, "output", "o", "", "output kubeconfig file")
 	mergeCmd.Flags().StringVar(&mergeConflictStrategy, "on-conflict", "skip", "conflict strategy: skip, overwrite, rename, fail")
 	rootCmd.AddCommand(mergeCmd)
 }

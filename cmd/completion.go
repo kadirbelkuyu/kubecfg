@@ -14,6 +14,8 @@ import (
 var completionCmd = &cobra.Command{
 	Use:                   "completion [bash|zsh|fish|powershell]",
 	Short:                 "Generate shell completion scripts",
+	Long:                  "Generate shell completion scripts for bash, zsh, fish, or PowerShell.",
+	Example:               "  kubecfg completion bash\n  kubecfg completion zsh\n  kubecfg completion fish\n  kubecfg completion powershell",
 	Args:                  cobra.ExactArgs(1),
 	ValidArgs:             []string{"bash", "zsh", "fish", "powershell"},
 	ValidArgsFunction:     cobra.FixedCompletions([]string{"bash", "zsh", "fish", "powershell"}, cobra.ShellCompDirectiveNoFileComp),

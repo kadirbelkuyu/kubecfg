@@ -9,10 +9,11 @@ import (
 )
 
 var renameCmd = &cobra.Command{
-	Use:   "rename [old-name] [new-name]",
-	Short: "Rename a context",
-	Long:  "Change the name of an existing context.",
-	Args:  cobra.ExactArgs(2),
+	Use:     "rename [old-name] [new-name]",
+	Short:   "Rename a context",
+	Long:    "Change the name of an existing context.",
+	Example: `  kubecfg rename old-dev dev`,
+	Args:    cobra.ExactArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
 		oldName := args[0]
 		newName := args[1]

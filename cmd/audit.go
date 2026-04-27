@@ -18,12 +18,17 @@ var auditLimit int
 var auditCmd = &cobra.Command{
 	Use:   "audit",
 	Short: "Inspect kubecfg audit events",
+	Long:  "Inspect audit events recorded by guarded Kubernetes sessions.",
+	Example: `  kubecfg audit tail
+  kubecfg audit tail --limit 20`,
 }
 
 var auditTailCmd = &cobra.Command{
 	Use:   "tail",
 	Short: "Show recent audit events",
-	Args:  cobra.NoArgs,
+	Example: `  kubecfg audit tail
+  kubecfg audit tail --limit 20`,
+	Args: cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		auditStore := infrastructure.NewAuditFileStore(config.GetAuditPath())
 		auditService := application.NewAuditService(auditStore, config.IsAuditEnabled())
@@ -61,7 +66,7 @@ var auditTailCmd = &cobra.Command{
 }
 
 func init() {
-	auditTailCmd.Flags().IntVar(&auditLimit, "limit", 10, "number of recent audit events to show")
+	auditTailCmd.Flags().IntVar(&auditLimit, "limit", 10, "number of audit events to show")
 	auditCmd.AddCommand(auditTailCmd)
 	rootCmd.AddCommand(auditCmd)
 }

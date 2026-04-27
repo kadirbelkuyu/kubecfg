@@ -38,8 +38,9 @@ var newStatusHealthServiceFn = newStatusHealthService
 
 var statusCmd = &cobra.Command{
 	Use:           "status [context-name]",
-	Short:         "Check the health of Kubernetes contexts",
-	Long:          "Check one or more Kubernetes contexts and report whether the API servers are reachable.",
+	Short:         "Check context health",
+	Long:          "Check one or more Kubernetes contexts and report API server reachability.",
+	Example:       "  kubecfg status\n  kubecfg status production\n  kubecfg status --watch\n  kubecfg status --output json",
 	Args:          cobra.MaximumNArgs(1),
 	SilenceUsage:  true,
 	SilenceErrors: true,
@@ -72,8 +73,8 @@ var statusCmd = &cobra.Command{
 func init() {
 	statusCmd.ValidArgsFunction = completeContextNames(false)
 	statusCmd.Flags().StringVar(&statusContext, "context", "", "check a single context instead of all")
-	statusCmd.Flags().BoolVar(&statusWatch, "watch", false, "re-run checks every 10 seconds until interrupted")
-	statusCmd.Flags().DurationVar(&statusTimeout, "timeout", health.CheckTimeout, "override the per-check timeout")
+	statusCmd.Flags().BoolVar(&statusWatch, "watch", false, "repeat checks every 10 seconds until interrupted")
+	statusCmd.Flags().DurationVar(&statusTimeout, "timeout", health.CheckTimeout, "per-check timeout")
 	statusCmd.Flags().StringVar(&statusOutput, "output", "table", "output format: table, json, yaml")
 	_ = statusCmd.RegisterFlagCompletionFunc("context", completeContextNames(false))
 	_ = statusCmd.RegisterFlagCompletionFunc("output", cobra.FixedCompletions([]string{"table", "json", "yaml"}, cobra.ShellCompDirectiveNoFileComp))

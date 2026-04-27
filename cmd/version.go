@@ -13,10 +13,11 @@ var (
 )
 
 var versionCmd = &cobra.Command{
-	Use:   "version",
-	Short: "Print version information",
-	Long:  "Display the version of kubecfg.",
-	Args:  cobra.NoArgs,
+	Use:     "version",
+	Short:   "Print version information",
+	Long:    "Display the version of kubecfg.",
+	Example: `  kubecfg version`,
+	Args:    cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Printf("kubecfg version %s\n", version)
 		fmt.Printf("commit: %s\n", commit)
