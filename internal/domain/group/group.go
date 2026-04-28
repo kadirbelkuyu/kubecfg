@@ -21,6 +21,7 @@ var allowedColors = map[string]struct{}{
 type Group struct {
 	Name        string   `yaml:"name"`
 	Description string   `yaml:"description,omitempty"`
+	Policy      string   `yaml:"policy,omitempty"`
 	Contexts    []string `yaml:"contexts"`
 	Color       string   `yaml:"color,omitempty"`
 }

@@ -170,6 +170,7 @@ const (
 	IconRename    = "✎"
 	IconRemove    = "−"
 	IconGuard     = "G"
+	IconGroup     = "#"
 )
 
 type MenuItem struct {
@@ -182,6 +183,7 @@ const IconPolicy = "§"
 var MenuItems = []MenuItem{
 	{Icon: IconSwitch, Label: "Switch Context"},
 	{Icon: IconNamespace, Label: "Set Namespace"},
+	{Icon: IconGroup, Label: "Context Groups"},
 	{Icon: IconGuard, Label: "Guard"},
 	{Icon: IconPolicy, Label: "Policies"},
 	{Icon: IconAdd, Label: "Add Context"},

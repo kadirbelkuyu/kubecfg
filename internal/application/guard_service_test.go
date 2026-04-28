@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kadirbelkuyu/kubecfg/internal/config"
 	"github.com/kadirbelkuyu/kubecfg/internal/domain"
 )
 
@@ -93,9 +94,11 @@ func (r *guardRuntime) IsRunning(session *domain.Session) bool {
 
 type guardWriter struct {
 	cleanupCount int
+	contextName  string
 }
 
 func (w *guardWriter) Write(sourcePath, contextName, proxyAddress, outputPath string) (*domain.GuardedKubeconfigResult, error) {
+	w.contextName = contextName
 	return &domain.GuardedKubeconfigResult{
 		Path:      outputPath,
 		Context:   contextName,
@@ -342,5 +345,72 @@ func TestGuardStartReplacesExpiredSession(t *testing.T) {
 
 	if !runtime.startCalled {
 		t.Fatal("StartReadonly() did not start replacement runtime")
+	}
+}
+
+func TestGuardStartUsesExplicitTargetContextAndCustomPolicy(t *testing.T) {
+	now := time.Date(2026, 4, 7, 10, 0, 0, 0, time.UTC)
+	repo := &guardRepo{
+		exists: true,
+		config: &domain.KubeConfig{
+			CurrentContext: "staging",
+			Clusters: []domain.ClusterEntry{
+				{Name: "staging-cluster", Cluster: domain.Cluster{Server: "https://staging.example.com"}},
+				{Name: "prod-cluster", Cluster: domain.Cluster{Server: "https://prod.example.com"}},
+			},
+			Users: []domain.UserEntry{
+				{Name: "staging-user"},
+				{Name: "prod-user"},
+			},
+			Contexts: []domain.ContextEntry{
+				{Name: "staging", Context: domain.Context{Cluster: "staging-cluster", User: "staging-user"}},
+				{Name: "prod", Context: domain.Context{Cluster: "prod-cluster", User: "prod-user"}},
+			},
+		},
+	}
+	store := &guardStore{
+		session: &domain.Session{
+			ID:                      "active-debug",
+			StartedAt:               now.Add(-time.Minute),
+			ExpiresAt:               now.Add(time.Hour),
+			PolicyName:              "debug",
+			GeneratedKubeconfigPath: "/tmp/guard/active-debug/config",
+			ProxyPID:                1234,
+		},
+	}
+	runtime := &guardRuntime{address: "http://127.0.0.1:41003", running: true}
+	writer := &guardWriter{}
+	sessionService := NewSessionService(store, runtime, writer, nil)
+	sessionService.now = func() time.Time { return now }
+	policies := NewPolicyService(map[string]config.ProfileConfig{
+		"restricted": {Readonly: true, Description: "custom restricted"},
+	})
+	guardService := NewGuardService(repo, sessionService, writer, runtime, nil, "/tmp/guard", 45*time.Minute, WithGuardPolicyResolver(policies))
+	guardService.now = func() time.Time { return now }
+
+	session, err := guardService.StartReadonly(GuardStartOptions{
+		SourcePath:    "/tmp/config",
+		Profile:       "restricted",
+		TargetContext: "prod",
+		ReplaceActive: true,
+	})
+	if err != nil {
+		t.Fatalf("StartReadonly() error = %v", err)
+	}
+
+	if writer.contextName != "prod" {
+		t.Fatalf("writer context = %q, want prod", writer.contextName)
+	}
+	if session.TargetContext != "prod" {
+		t.Fatalf("TargetContext = %q, want prod", session.TargetContext)
+	}
+	if session.PolicyName != "restricted" {
+		t.Fatalf("PolicyName = %q, want restricted", session.PolicyName)
+	}
+	if session.Mode != domain.GuardModeReadonly {
+		t.Fatalf("Mode = %q, want readonly", session.Mode)
+	}
+	if writer.cleanupCount != 1 {
+		t.Fatalf("cleanup count = %d, want replaced active session cleanup", writer.cleanupCount)
 	}
 }

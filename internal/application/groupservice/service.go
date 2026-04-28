@@ -13,6 +13,19 @@ type replaceAllStore interface {
 	ReplaceAll(groups []domaingroup.Group) error
 }
 
+type PolicyResolver interface {
+	GetPolicy(name string) (*domain.Policy, error)
+	ValidatePolicy(policy *domain.Policy) error
+}
+
+type Option func(*Service)
+
+func WithPolicyResolver(resolver PolicyResolver) Option {
+	return func(service *Service) {
+		service.policyResolver = resolver
+	}
+}
+
 type MissingContextsError struct {
 	Names []string
 }
@@ -29,24 +42,33 @@ type Service struct {
 	store          domaingroup.Store
 	kubeRepo       domain.KubeConfigRepository
 	kubeconfigPath string
+	policyResolver PolicyResolver
 }
 
-func NewService(store domaingroup.Store, kubeRepo domain.KubeConfigRepository, kubeconfigPath string) *Service {
+func NewService(store domaingroup.Store, kubeRepo domain.KubeConfigRepository, kubeconfigPath string, options ...Option) *Service {
 	path := strings.TrimSpace(kubeconfigPath)
 	if path == "" && kubeRepo != nil {
 		path = kubeRepo.GetDefaultPath()
 	}
 
-	return &Service{
+	service := &Service{
 		store:          store,
 		kubeRepo:       kubeRepo,
 		kubeconfigPath: path,
 	}
+	for _, option := range options {
+		option(service)
+	}
+
+	return service
 }
 
 func (s *Service) Create(g domaingroup.Group) error {
 	g = normalizeGroup(g)
 	if err := g.Validate(); err != nil {
+		return err
+	}
+	if err := s.validatePolicy(g.Policy); err != nil {
 		return err
 	}
 
@@ -69,7 +91,43 @@ func (s *Service) Create(g domaingroup.Group) error {
 	}
 
 	return nil
+}
 
+func (s *Service) SetPolicy(groupName, policyName string) error {
+	policyName = strings.TrimSpace(policyName)
+	if err := s.validatePolicy(policyName); err != nil {
+		return err
+	}
+
+	g, err := s.Get(groupName)
+	if err != nil {
+		return err
+	}
+
+	g.Policy = policyName
+	if err := s.store.Save(g); err != nil {
+		return fmt.Errorf("save group %q: %w", g.Name, err)
+	}
+
+	return nil
+}
+
+func (s *Service) UnsetPolicy(groupName string) error {
+	g, err := s.Get(groupName)
+	if err != nil {
+		return err
+	}
+
+	g.Policy = ""
+	if err := s.store.Save(g); err != nil {
+		return fmt.Errorf("save group %q: %w", g.Name, err)
+	}
+
+	return nil
+}
+
+func (s *Service) ValidatePolicy(policyName string) error {
+	return s.validatePolicy(policyName)
 }
 
 func (s *Service) AddContext(groupName, contextName string) error {
@@ -163,6 +221,9 @@ func (s *Service) Get(name string) (domaingroup.Group, error) {
 func (s *Service) Resolve(name string) (domaingroup.Group, []string, error) {
 	g, err := s.Get(name)
 	if err != nil {
+		return domaingroup.Group{}, nil, err
+	}
+	if err := s.validatePolicy(g.Policy); err != nil {
 		return domaingroup.Group{}, nil, err
 	}
 
@@ -277,6 +338,7 @@ func normalizeGroup(g domaingroup.Group) domaingroup.Group {
 	g.Name = strings.TrimSpace(g.Name)
 	g.Description = strings.TrimSpace(g.Description)
 	g.Color = strings.TrimSpace(g.Color)
+	g.Policy = strings.TrimSpace(g.Policy)
 
 	contexts := make([]string, 0, len(g.Contexts))
 	for _, contextName := range g.Contexts {
@@ -285,4 +347,24 @@ func normalizeGroup(g domaingroup.Group) domaingroup.Group {
 	g.Contexts = contexts
 
 	return g
+}
+
+func (s *Service) validatePolicy(policyName string) error {
+	policyName = strings.TrimSpace(policyName)
+	if policyName == "" {
+		return nil
+	}
+	if s.policyResolver == nil {
+		return fmt.Errorf("policy resolver is required to validate policy %q", policyName)
+	}
+
+	policy, err := s.policyResolver.GetPolicy(policyName)
+	if err != nil {
+		return fmt.Errorf("unknown group policy %q: %w", policyName, err)
+	}
+	if err := s.policyResolver.ValidatePolicy(policy); err != nil {
+		return fmt.Errorf("invalid group policy %q: %w", policyName, err)
+	}
+
+	return nil
 }
