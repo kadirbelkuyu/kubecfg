@@ -56,7 +56,12 @@ var rootCmd = &cobra.Command{
 			repo,
 			kubeconfigPath,
 		)
-		groupService = appgroupservice.NewService(groupstore.NewFileStore(config.GetGroupsPath()), repo, kubeconfigPath)
+		groupService = appgroupservice.NewService(
+			groupstore.NewFileStore(config.GetGroupsPath()),
+			repo,
+			kubeconfigPath,
+			appgroupservice.WithPolicyResolver(policyService),
+		)
 		runtime, err := infrastructure.NewGuardProcessRuntime("", config.GetGuardSessionPath())
 		if err != nil {
 			printError(err)
@@ -75,6 +80,7 @@ var rootCmd = &cobra.Command{
 			auditService,
 			filepath.Join(config.GetGuardStateDir(), "guard"),
 			config.GetGuardDefaultTTL(),
+			application.WithGuardPolicyResolver(policyService),
 		)
 	},
 	Run: func(cmd *cobra.Command, args []string) {
