@@ -192,6 +192,12 @@ const sampleConfig = `# kubecfg configuration
 # Profiles defined here override the builtin profiles (prod, staging, debug)
 # when matched by name.  Guard sessions will use these rules.
 
+kubeconfig_sources:
+  active: ~/.kube/config
+  dirs:
+    - ~/.kube
+    - ~/team-kubeconfigs
+
 profiles:
   prod:
     description: "Production guard: readonly with critical resources blocked"
