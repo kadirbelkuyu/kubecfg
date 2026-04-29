@@ -92,6 +92,11 @@ func renderCurrentContext(ctx application.ContextInfo, status *application.Guard
 	_, _ = fmt.Fprintf(&output, "  %s %s\n",
 		ui.Label("Server:   "), ui.Server(ctx.Server))
 
+	if ctx.SourcePath != "" {
+		_, _ = fmt.Fprintf(&output, "  %s %s\n",
+			ui.Label("Source:   "), ui.Value(ctx.SourcePath))
+	}
+
 	_, _ = fmt.Fprintf(&output, "  %s %s\n",
 		ui.Label("Guard:    "), ui.Value(guardStatusLabel(status, ctx.Name)))
 

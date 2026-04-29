@@ -50,6 +50,7 @@ var listCmd = &cobra.Command{
 			return
 		}
 
+		printInfo("Source: " + kubeconfigPath)
 		printContextTable(contexts)
 	},
 }
