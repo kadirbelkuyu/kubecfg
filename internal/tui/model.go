@@ -36,6 +36,7 @@ const (
 	ViewGuard
 	ViewPolicy
 	ViewGroup
+	ViewKubeconfigSource
 	ViewConfirmModal
 )
 
@@ -81,6 +82,8 @@ type Model struct {
 	policyUserFlags map[string]bool // name → true if user-defined
 	groups          []domaingroup.Group
 	groupCursor     int
+	sources         []application.KubeconfigSourceInfo
+	sourceCursor    int
 	// confirmation modal state
 	confirmationStore domain.ConfirmationStore
 	pendingConfirm    *domain.PendingConfirmation
@@ -220,6 +223,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updatePolicy(msg)
 		case ViewGroup:
 			return m.updateGroup(msg)
+		case ViewKubeconfigSource:
+			return m.updateKubeconfigSource(msg)
 		case ViewConfirmModal:
 			return m.updateConfirmModal(msg)
 		}
@@ -399,6 +404,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case kubeconfigSourcesLoadedMsg:
+		m.sources = msg.sources
+		if m.sourceCursor >= len(m.sources) {
+			m.sourceCursor = 0
+		}
+		return m, nil
+
+	case kubeconfigSourceActivatedMsg:
+		if msg.err != nil {
+			m.errorMessage = msg.err.Error()
+			return m, nil
+		}
+		m.rebuildKubeconfigScopedServices(msg.path)
+		m.statusMessage = fmt.Sprintf("Kubeconfig source: %s", msg.path)
+		m.currentView = ViewContextList
+		m.contextCursor = 0
+		m.resetFilter()
+		return m, tea.Batch(m.loadContexts, m.loadKubeconfigSources)
+
 	case groupUsedMsg:
 		if msg.err != nil {
 			m.errorMessage = msg.err.Error()
@@ -444,6 +468,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if len(m.groups) > 0 {
 					return m, m.useGroup(m.groups[m.groupCursor])
 				}
+			case ViewKubeconfigSource:
+				if len(m.sources) > 0 {
+					return m, m.activateKubeconfigSource(m.sources[m.sourceCursor].Path)
+				}
 			}
 		}
 		if msg.Button == tea.MouseButtonWheelUp {
@@ -463,6 +491,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case ViewGroup:
 				if m.groupCursor > 0 {
 					m.groupCursor--
+				}
+			case ViewKubeconfigSource:
+				if m.sourceCursor > 0 {
+					m.sourceCursor--
 				}
 			}
 			return m, nil
@@ -484,6 +516,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case ViewGroup:
 				if m.groupCursor < len(m.groups)-1 {
 					m.groupCursor++
+				}
+			case ViewKubeconfigSource:
+				if m.sourceCursor < len(m.sources)-1 {
+					m.sourceCursor++
 				}
 			}
 			return m, nil
@@ -635,6 +671,10 @@ func (m Model) selectMenuItem() (tea.Model, tea.Cmd) {
 		m.namespaceCursor = 0
 		m.resetFilter()
 		return m, m.loadNamespaces
+	case "Kubeconfig Sources":
+		m.currentView = ViewKubeconfigSource
+		m.sourceCursor = 0
+		return m, m.loadKubeconfigSources
 	case "Context Groups":
 		m.currentView = ViewGroup
 		m.groupCursor = 0
@@ -771,6 +811,26 @@ func (m Model) updateGroup(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case key.Matches(msg, Keys.Refresh):
 		return m, m.loadGroups
+	}
+	return m, nil
+}
+
+func (m Model) updateKubeconfigSource(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, Keys.Up):
+		if m.sourceCursor > 0 {
+			m.sourceCursor--
+		}
+	case key.Matches(msg, Keys.Down):
+		if m.sourceCursor < len(m.sources)-1 {
+			m.sourceCursor++
+		}
+	case key.Matches(msg, Keys.Select):
+		if len(m.sources) > 0 {
+			return m, m.activateKubeconfigSource(m.sources[m.sourceCursor].Path)
+		}
+	case key.Matches(msg, Keys.Refresh):
+		return m, m.loadKubeconfigSources
 	}
 	return m, nil
 }
@@ -933,6 +993,61 @@ func formatGroupLine(g domaingroup.Group) string {
 	return strings.Join(parts, " ")
 }
 
+func (m Model) viewKubeconfigSources() string {
+	var b strings.Builder
+
+	b.WriteString("\n " + HeaderStyle.Render(IconSource+" Kubeconfig Sources") + "\n")
+	b.WriteString(" " + DimItemStyle.Render("Active: "+config.GetKubeconfigPath()) + "\n\n")
+	if len(m.sources) == 0 {
+		b.WriteString(" " + DimItemStyle.Render("No kubeconfig sources found") + "\n")
+		return b.String()
+	}
+
+	maxVisible := 10
+	start := 0
+	if m.sourceCursor >= maxVisible {
+		start = m.sourceCursor - maxVisible + 1
+	}
+
+	end := start + maxVisible
+	if end > len(m.sources) {
+		end = len(m.sources)
+	}
+
+	for i := start; i < end; i++ {
+		source := m.sources[i]
+		line := formatKubeconfigSourceLine(source)
+		switch {
+		case i == m.sourceCursor:
+			cursor := SelectedItemStyle.Render(IconCurrent)
+			_, _ = fmt.Fprintf(&b, " %s %s\n", cursor, SelectedItemStyle.Render(line))
+		case source.Active:
+			marker := CurrentMarkerStyle.Render(IconCheck)
+			_, _ = fmt.Fprintf(&b, " %s %s\n", marker, NormalItemStyle.Render(line))
+		default:
+			_, _ = fmt.Fprintf(&b, "   %s\n", NormalItemStyle.Render(line))
+		}
+	}
+
+	if len(m.sources) > maxVisible {
+		info := DimItemStyle.Render(fmt.Sprintf(" [%d/%d]", m.sourceCursor+1, len(m.sources)))
+		b.WriteString("\n" + info)
+	}
+
+	return b.String()
+}
+
+func formatKubeconfigSourceLine(source application.KubeconfigSourceInfo) string {
+	status := fmt.Sprintf("%d contexts", source.ContextCount)
+	if source.CurrentContext != "" {
+		status += " current:" + source.CurrentContext
+	}
+	if source.Error != "" {
+		status = "error:" + source.Error
+	}
+	return fmt.Sprintf("%s [%s]", source.Path, status)
+}
+
 func (m Model) updateNamespaceSelector(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, Keys.Up):
@@ -995,6 +1110,8 @@ func (m Model) View() string {
 		content.WriteString(m.viewPolicies())
 	case ViewGroup:
 		content.WriteString(m.viewGroups())
+	case ViewKubeconfigSource:
+		content.WriteString(m.viewKubeconfigSources())
 	case ViewConfirmModal:
 		content.WriteString(m.viewConfirmModal())
 	}
@@ -1090,6 +1207,10 @@ func (m Model) renderHelp() string {
 		addKey("enter", "use")
 		addKey("r", "refresh")
 		addKey("esc", "back")
+	case ViewKubeconfigSource:
+		addKey("enter", "use")
+		addKey("r", "refresh")
+		addKey("esc", "back")
 	case ViewConfirmModal:
 		addKey("y", "approve")
 		addKey("n/esc", "deny")
@@ -1177,6 +1298,7 @@ func (m Model) viewContextList() string {
 	}
 
 	b.WriteString("\n " + title)
+	b.WriteString("\n " + DimItemStyle.Render("Source: "+config.GetKubeconfigPath()))
 
 	if m.filtering || m.filterInput.Value() != "" {
 		filterStyle := FilterInputStyle.Render(" " + m.filterInput.View())
@@ -1479,6 +1601,15 @@ type groupsLoadedMsg struct {
 	err    error
 }
 
+type kubeconfigSourcesLoadedMsg struct {
+	sources []application.KubeconfigSourceInfo
+}
+
+type kubeconfigSourceActivatedMsg struct {
+	path string
+	err  error
+}
+
 type groupUsedMsg struct {
 	message string
 	err     error
@@ -1499,6 +1630,11 @@ func (m Model) loadPolicies() tea.Msg {
 func (m Model) loadGroups() tea.Msg {
 	groups, err := m.groupService.List()
 	return groupsLoadedMsg{groups: groups, err: err}
+}
+
+func (m Model) loadKubeconfigSources() tea.Msg {
+	sources := m.service.ListKubeconfigSources(config.GetKubeconfigPath(), config.GetKubeconfigSourceDirs())
+	return kubeconfigSourcesLoadedMsg{sources: sources}
 }
 
 func (m Model) loadContexts() tea.Msg {
@@ -1527,6 +1663,39 @@ func (m Model) switchContext(name string) tea.Cmd {
 		}
 		return statusMsg(fmt.Sprintf("Switched to '%s'", name))
 	}
+}
+
+func (m Model) activateKubeconfigSource(path string) tea.Cmd {
+	return func() tea.Msg {
+		if err := m.service.ValidateKubeconfigSource(path); err != nil {
+			return kubeconfigSourceActivatedMsg{path: path, err: err}
+		}
+		if err := config.SetActiveKubeconfigPath(path); err != nil {
+			return kubeconfigSourceActivatedMsg{path: path, err: err}
+		}
+		return kubeconfigSourceActivatedMsg{path: config.GetKubeconfigPath()}
+	}
+}
+
+func (m *Model) rebuildKubeconfigScopedServices(kubeconfigPath string) {
+	config.SetKubeconfigPath(kubeconfigPath)
+	repo := infrastructure.NewFileRepository()
+	m.groupService = appgroupservice.NewService(
+		groupstore.NewFileStore(config.GetGroupsPath()),
+		repo,
+		kubeconfigPath,
+		appgroupservice.WithPolicyResolver(m.policyService),
+	)
+	m.healthService = healthservice.New(
+		healthcheck.New(kubeconfigPath),
+		healthcheck.NewCache(),
+		repo,
+		kubeconfigPath,
+	)
+	m.healthResults = make(map[string]healthdomain.Result)
+	m.healthChecking = false
+	m.healthPending = 0
+	m.healthLoaded = false
 }
 
 func (m Model) useGroup(g domaingroup.Group) tea.Cmd {
