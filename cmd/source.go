@@ -46,11 +46,7 @@ var sourceUseCmd = &cobra.Command{
 	Long:  "Switch the active kubeconfig source file. Omit the argument to choose from discovered files.",
 	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		path, err := resolveKubeconfigSourceSelection(args)
-		if err != nil {
-			printError(err)
-			return
-		}
+		path := resolveKubeconfigSourceSelection(args)
 		if path == "" {
 			return
 		}
@@ -125,25 +121,25 @@ func sourceService() *application.Service {
 	return application.NewService(infrastructure.NewFileRepository())
 }
 
-func resolveKubeconfigSourceSelection(args []string) (string, error) {
+func resolveKubeconfigSourceSelection(args []string) string {
 	sources := listKubeconfigSources()
 	if len(args) == 0 {
-		return selectKubeconfigSourceInteractive(sources), nil
+		return selectKubeconfigSourceInteractive(sources)
 	}
 
 	value := strings.TrimSpace(args[0])
 	if value == "" {
-		return "", nil
+		return ""
 	}
 
 	expanded := config.ExpandPath(value)
 	for _, source := range sources {
 		if source.Path == expanded || source.Name == value {
-			return source.Path, nil
+			return source.Path
 		}
 	}
 
-	return expanded, nil
+	return expanded
 }
 
 func selectKubeconfigSourceInteractive(sources []application.KubeconfigSourceInfo) string {

@@ -313,8 +313,18 @@ func normalizePathList(paths []string) []string {
 }
 
 func loadConfigDocument() (*yaml.Node, error) {
-	path := getConfigFilePath()
-	data, err := os.ReadFile(path)
+	root, err := os.OpenRoot(getDefaultGuardStateDir())
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return newConfigDocument(), nil
+		}
+		return nil, fmt.Errorf("open config directory: %w", err)
+	}
+	defer func() {
+		_ = root.Close()
+	}()
+
+	data, err := root.ReadFile("config.yaml")
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return newConfigDocument(), nil
