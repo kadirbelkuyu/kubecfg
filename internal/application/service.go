@@ -193,12 +193,13 @@ func (s *Service) ListContexts(targetPath string) ([]ContextInfo, error) {
 		}
 
 		contexts[i] = ContextInfo{
-			Name:      ctx.Name,
-			Cluster:   ctx.Context.Cluster,
-			User:      ctx.Context.User,
-			Namespace: ctx.Context.Namespace,
-			Server:    server,
-			Current:   ctx.Name == config.CurrentContext,
+			Name:       ctx.Name,
+			Cluster:    ctx.Context.Cluster,
+			User:       ctx.Context.User,
+			Namespace:  ctx.Context.Namespace,
+			Server:     server,
+			Current:    ctx.Name == config.CurrentContext,
+			SourcePath: targetPath,
 		}
 	}
 
@@ -571,12 +572,13 @@ func (s *Service) SearchContexts(targetPath, query string) ([]ContextInfo, error
 }
 
 type ContextInfo struct {
-	Name      string
-	Cluster   string
-	User      string
-	Namespace string
-	Server    string
-	Current   bool
+	Name       string
+	Cluster    string
+	User       string
+	Namespace  string
+	Server     string
+	Current    bool
+	SourcePath string
 }
 
 func parseMergeConflictStrategy(strategy string) (MergeConflictStrategy, error) {

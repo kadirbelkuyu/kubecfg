@@ -171,6 +171,7 @@ const (
 	IconRemove    = "−"
 	IconGuard     = "G"
 	IconGroup     = "#"
+	IconSource    = "◉"
 )
 
 type MenuItem struct {
@@ -183,6 +184,7 @@ const IconPolicy = "§"
 var MenuItems = []MenuItem{
 	{Icon: IconSwitch, Label: "Switch Context"},
 	{Icon: IconNamespace, Label: "Set Namespace"},
+	{Icon: IconSource, Label: "Kubeconfig Sources"},
 	{Icon: IconGroup, Label: "Context Groups"},
 	{Icon: IconGuard, Label: "Guard"},
 	{Icon: IconPolicy, Label: "Policies"},

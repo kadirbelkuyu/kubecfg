@@ -9,7 +9,7 @@ kubecfg is a Kubernetes kubeconfig manager for people who switch contexts often 
 
 It provides fast context and namespace switching, context groups, cluster health checks, and guarded Kubernetes sessions that can route requests through a local policy proxy.
 
-![kubecfg TUI](img/kubecfg.png)
+![kubecfg TUI main menu](img/main.png)
 
 ## Key Features
 
@@ -21,6 +21,28 @@ It provides fast context and namespace switching, context groups, cluster health
 - Health checks for all contexts or a single context, with table, JSON, and YAML output.
 - Guard sessions with generated kubeconfig files, TTLs, audit logs, policy profiles, and automatic activation from policy-bound groups.
 - Shell completions for Bash, Zsh, Fish, and PowerShell.
+
+## Screenshots
+
+### Context Selection
+
+![kubecfg use context selection](img/kubecfg-use.png)
+
+### Context List
+
+![kubecfg list output](img/kubecfg-list.png)
+
+### Policy Profiles
+
+![kubecfg policy list output](img/policy-list.png)
+
+### Guard Commands
+
+![kubecfg guard help output](img/guard.png)
+
+### Help
+
+![kubecfg help output](img/help.png)
 
 ## Why kubecfg vs kubectx
 
@@ -118,6 +140,19 @@ Use a specific kubeconfig file with:
 ```bash
 kubecfg --kubeconfig ./config list
 ```
+
+Persistently choose which kubeconfig file kubecfg should use:
+
+```bash
+kubecfg source dir add ~/team-kubeconfigs
+kubecfg source list
+kubecfg source use ~/team-kubeconfigs/prod.yaml
+kubecfg source current
+```
+
+The active source is stored in `~/.kubecfg/config.yaml` under `kubeconfig_sources.active`.
+Directories scanned for selectable kubeconfig files are stored under `kubeconfig_sources.dirs`.
+The TUI also includes a `Kubeconfig Sources` screen for switching the active file without leaving the app.
 
 ## Core Commands
 
