@@ -50,8 +50,10 @@ changelog:
       - "^test:"
       - "^chore:"
 
-brews:
+homebrew_casks:
   - name: kubecfg
+    binaries:
+      - kubecfg
     repository:
       owner: kadirbelkuyu
       name: homebrew-tap
@@ -62,7 +64,3 @@ brews:
     homepage: "https://github.com/kadirbelkuyu/kubecfg"
     description: "A fast, secure CLI tool for managing Kubernetes kubeconfig files"
     license: "MIT"
-    install: |
-      bin.install "kubecfg"
-    test: |
-      system "#{bin}/kubecfg", "--help"
