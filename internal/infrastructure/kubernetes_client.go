@@ -2,15 +2,17 @@ package infrastructure
 
 import (
 	"context"
-	"os/exec"
 	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
+
+	"github.com/kadirbelkuyu/kubecfg/internal/infrastructure/kubecommand"
 )
 
 type KubernetesClient struct {
@@ -30,15 +32,6 @@ func (k *KubernetesClient) ListNamespacesForContext(contextName string, timeout 
 		timeout = 10 * time.Second
 	}
 
-	namespaces, err := k.listNamespacesWithClient(contextName, timeout)
-	if err == nil {
-		return namespaces, nil
-	}
-
-	return k.listNamespacesWithKubectl(contextName, timeout)
-}
-
-func (k *KubernetesClient) listNamespacesWithClient(contextName string, timeout time.Duration) ([]string, error) {
 	loadingRules := &clientcmd.ClientConfigLoadingRules{ExplicitPath: k.kubeconfigPath}
 	overrides := &clientcmd.ConfigOverrides{}
 	if contextName != "" {
@@ -47,11 +40,21 @@ func (k *KubernetesClient) listNamespacesWithClient(contextName string, timeout 
 
 	config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, overrides).ClientConfig()
 	if err != nil {
-		return nil, err
+		return k.listNamespacesWithKubectl(contextName, timeout)
 	}
 
 	config.Timeout = timeout
+	if config.ExecProvider != nil {
+		return k.listNamespacesWithKubectl(contextName, timeout)
+	}
+	namespaces, err := k.listNamespacesWithClient(config, timeout)
+	if err == nil {
+		return namespaces, nil
+	}
+	return k.listNamespacesWithKubectl(contextName, timeout)
+}
 
+func (k *KubernetesClient) listNamespacesWithClient(config *rest.Config, timeout time.Duration) ([]string, error) {
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return nil, err
@@ -82,9 +85,7 @@ func (k *KubernetesClient) listNamespacesWithKubectl(contextName string, timeout
 		args = append(args, "--context", contextName)
 	}
 
-	// #nosec G204 -- kubectl is invoked directly without a shell and arguments are passed literally.
-	cmd := exec.CommandContext(ctx, "kubectl", args...)
-	output, err := cmd.Output()
+	output, err := kubecommand.Run(ctx, args...)
 	if err != nil {
 		return nil, err
 	}

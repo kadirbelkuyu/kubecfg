@@ -1943,7 +1943,11 @@ func (m Model) healthIndicator(contextName string) (string, string) {
 	case healthdomain.StatusDegraded:
 		return HealthDegradedStyle.Render(result.Status.Emoji()), DimItemStyle.Render("(" + formatHealthLatency(result.Latency) + ")")
 	case healthdomain.StatusUnhealthy, healthdomain.StatusUnreachable:
-		return HealthUnhealthyStyle.Render(result.Status.Emoji()), ""
+		detail := ""
+		if result.Error != "" {
+			detail = DimItemStyle.Render("(" + result.Error + ")")
+		}
+		return HealthUnhealthyStyle.Render(result.Status.Emoji()), detail
 	default:
 		if m.healthChecking {
 			return HealthUnknownStyle.Render("?"), DimItemStyle.Render("(checking... " + healthSpinnerFrames[m.healthSpinner] + ")")

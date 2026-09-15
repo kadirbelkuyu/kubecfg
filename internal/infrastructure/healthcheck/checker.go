@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"net/url"
+	"os/exec"
 	"strings"
 	"sync"
 	"syscall"
@@ -134,6 +135,12 @@ func (c *KubeChecker) clientForContext(contextName string) (*http.Client, *url.U
 	serverURL, err := url.Parse(restConfig.Host)
 	if err != nil {
 		return nil, nil, fmt.Errorf("parse server url for %q: %w", contextName, err)
+	}
+	if restConfig.ExecProvider != nil {
+		return &http.Client{
+			Transport: kubectlTransport{kubeconfigPath: c.kubeConfigPath, contextName: contextName, timeout: c.timeout},
+			Timeout:   c.timeout,
+		}, serverURL, nil
 	}
 
 	transportConfig, err := restConfig.TransportConfig()
@@ -324,5 +331,9 @@ func (c *KubeChecker) classifyError(result health.Result, err error) health.Resu
 
 	result.Status = health.StatusUnhealthy
 	result.Error = "request failed"
+	var commandErr *exec.Error
+	if strings.Contains(err.Error(), "authentication") || errors.As(err, &commandErr) {
+		result.Error = err.Error()
+	}
 	return result
 }
