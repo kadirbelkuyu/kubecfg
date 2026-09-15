@@ -193,6 +193,8 @@ kubecfg status --output json
 
 The command exits non-zero when a checked context is unhealthy or unreachable, so it can be used in scripts.
 
+Contexts using an `exec` credential plugin require `kubectl` on `PATH` for health checks and namespace discovery. These requests run in a separate process so credential plugin diagnostics do not corrupt the TUI. If Google Cloud credentials need reauthentication, leave the TUI, run `gcloud auth login` in a terminal, and refresh health status after signing in.
+
 ### group
 
 Create named sets of contexts and switch within them.
