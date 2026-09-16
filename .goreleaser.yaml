@@ -50,6 +50,9 @@ changelog:
       - "^test:"
       - "^chore:"
 
+release:
+  replace_existing_artifacts: true
+
 homebrew_casks:
   - name: kubecfg
     binaries:
