@@ -17,6 +17,7 @@ It provides fast context and namespace switching, context groups, cluster health
 - Direct CLI commands for context, namespace, merge, export, validate, and backup restore workflows.
 - Optional `fzf` picker integration for context and namespace selection.
 - Previous-context toggle with `kubecfg use -`.
+- In-place context editing with `kubecfg edit` for renewed certificates, moved API servers, or changed credentials.
 - Context groups stored in `~/.kubecfg/groups.yaml`.
 - Health checks for all contexts or a single context, with table, JSON, and YAML output.
 - Guard sessions with generated kubeconfig files, TTLs, audit logs, policy profiles, and automatic activation from policy-bound groups.
@@ -193,7 +194,34 @@ kubecfg status --output json
 
 The command exits non-zero when a checked context is unhealthy or unreachable, so it can be used in scripts.
 
-Contexts using an `exec` credential plugin require `kubectl` on `PATH` for health checks and namespace discovery. These requests run in a separate process so credential plugin diagnostics do not corrupt the TUI. If Google Cloud credentials need reauthentication, leave the TUI, run `gcloud auth login` in a terminal, and refresh health status after signing in.
+Contexts using an `exec` credential plugin require `kubectl` on `PATH` for health checks and namespace discovery. These requests run in a separate process so credential plugin diagnostics do not corrupt the TUI. While the TUI owns the terminal it also captures standard error, so output from credential plugins such as `gke-gcloud-auth-plugin` cannot be painted over the screen; a context that needs a new sign-in is reported in its health row instead. Set `KUBECFG_DEBUG_STDERR=1` to print the captured output after the TUI exits.
+
+If Google Cloud credentials need reauthentication, leave the TUI, run `gcloud auth login` in a terminal, and refresh health status after signing in.
+
+### edit
+
+Update the definition of an existing context in place, instead of removing it and adding it again.
+
+```bash
+kubecfg edit
+kubecfg edit production
+kubecfg edit production --from ./renewed-prod.yaml
+kubecfg edit production --print
+```
+
+`kubecfg edit` opens the context entry together with the cluster and user it references as a single-context kubeconfig in an editor, taken from `KUBECFG_EDITOR`, `KUBE_EDITOR`, `VISUAL`, or `EDITOR`. Saving the file applies the document; saving it unchanged or empty cancels the edit. Without a context name the current context is edited.
+
+The names of the context, cluster, and user must stay unchanged; use `kubecfg rename` to rename a context. A rejected document is reopened with the reason at the top, so edits are not lost.
+
+`--from` reads the definition from a kubeconfig file and keeps the local names, so a kubeconfig issued after a certificate rotation can be applied to an existing context:
+
+```bash
+kubecfg edit production --from ~/Downloads/prod-renewed.yaml
+```
+
+The server, certificates, tokens, and `exec` credential plugin settings are taken from the file. The namespace is taken from the file when it sets one, otherwise the local namespace is kept. The kubeconfig is backed up before it is written, so `kubecfg undo` can restore the previous definition.
+
+`--print` writes the definition to stdout without editing it.
 
 ### group
 
@@ -298,6 +326,20 @@ kubecfg group use prod
 
 If another Guard session is active, the group binding wins. For example, using a `prod` group replaces an active `debug` guard session with `prod`.
 
+### Renew the credentials of a context
+
+```bash
+# edit the definition by hand
+kubecfg edit production
+
+# or apply the kubeconfig the cluster provider issued
+kubecfg edit production --from ~/Downloads/prod-renewed.yaml
+
+kubecfg status production
+```
+
+The context keeps its name, its group membership, and its namespace, so nothing that refers to it has to be updated. `kubecfg undo` restores the previous definition from the backup taken before the write.
+
 ### Merge kubeconfigs safely
 
 ```bash
@@ -317,6 +359,7 @@ kubecfg export production --output production.yaml
 kubecfg merge a.yaml b.yaml --output merged.yaml
 kubecfg remove old-dev --force
 kubecfg rename old-name new-name
+kubecfg edit dev --print
 kubecfg undo --list
 kubecfg version
 ```
@@ -328,6 +371,7 @@ kubecfg version
 | `Up` / `Down` / `k` / `j` | Navigate |
 | `Enter` | Select |
 | `/` | Filter |
+| `Ctrl+e` | Edit the selected context definition in `$EDITOR` |
 | `r` | Refresh guard status in Guard view |
 | `[` / `]` | Change guard TTL preset in Guard view |
 | `Esc` | Back or cancel |

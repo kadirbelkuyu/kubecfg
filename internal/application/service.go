@@ -423,26 +423,12 @@ func (s *Service) ExportContext(targetPath, contextName, outputPath string) erro
 		contextName = config.CurrentContext
 	}
 
-	ctx, idx := config.FindContext(contextName)
-	if idx < 0 {
-		return domain.ErrContextNotFound
+	definition, err := config.ExtractContextDefinition(contextName)
+	if err != nil {
+		return err
 	}
 
-	cluster, clusterIdx := config.FindCluster(ctx.Context.Cluster)
-	if clusterIdx < 0 {
-		return domain.ErrClusterNotFound
-	}
-
-	user, userIdx := config.FindUser(ctx.Context.User)
-	if userIdx < 0 {
-		return domain.ErrUserNotFound
-	}
-
-	exported := domain.NewKubeConfig()
-	exported.CurrentContext = ctx.Name
-	exported.Contexts = append(exported.Contexts, *ctx)
-	exported.Clusters = append(exported.Clusters, *cluster)
-	exported.Users = append(exported.Users, *user)
+	exported := definition.ToKubeConfig()
 
 	if s.repo.Exists(outputPath) {
 		if err := s.repo.Backup(outputPath); err != nil {

@@ -32,6 +32,7 @@ kubecfg guard start --ttl 30m
 
 - `kubecfg use` switches contexts directly or interactively.
 - `kubecfg ns` sets or shows the namespace for the current context.
+- `kubecfg edit` updates an existing context definition in place, for example after a certificate rotation.
 - `kubecfg status` checks Kubernetes API reachability.
 - `kubecfg group` manages named context groups.
 - `kubecfg policy` inspects and validates guard policy profiles.

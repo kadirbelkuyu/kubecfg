@@ -41,6 +41,7 @@ func init() {
 	useCmd.ValidArgsFunction = completeContextNames(true)
 	removeCmd.ValidArgsFunction = completeContextNames(false)
 	exportCmd.ValidArgsFunction = completeContextNames(false)
+	editCmd.ValidArgsFunction = completeContextNames(false)
 	renameCmd.ValidArgsFunction = renameContextCompletion
 	nsCmd.ValidArgsFunction = namespaceArgCompletion
 	statusCmd.ValidArgsFunction = completeContextNames(false)
