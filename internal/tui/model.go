@@ -2,7 +2,9 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -22,6 +24,7 @@ import (
 	"github.com/kadirbelkuyu/kubecfg/internal/infrastructure"
 	"github.com/kadirbelkuyu/kubecfg/internal/infrastructure/groupstore"
 	"github.com/kadirbelkuyu/kubecfg/internal/infrastructure/healthcheck"
+	"github.com/kadirbelkuyu/kubecfg/internal/infrastructure/termguard"
 )
 
 type View int
@@ -94,6 +97,7 @@ type Model struct {
 	healthPending     int
 	healthSpinner     int
 	healthLoaded      bool
+	stderrGuard       *termguard.Guard
 }
 
 func NewModel(healthSvc *healthservice.Service) (Model, error) {
@@ -291,6 +295,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.loadContexts
 
+	case contextEditedMsg:
+		switch {
+		case msg.err != nil && errors.Is(msg.err, domain.ErrEditAborted):
+			m.statusMessage = "Edit canceled"
+		case msg.err != nil:
+			m.errorMessage = msg.err.Error()
+		case msg.update.IsEmpty():
+			m.statusMessage = fmt.Sprintf("Context '%s' is unchanged", msg.name)
+		default:
+			m.statusMessage = fmt.Sprintf("Updated context '%s' (%s)", msg.name, strings.Join(msg.update.Changed, ", "))
+			m.currentView = ViewMenu
+			return m, tea.Batch(m.loadContexts, m.startHealthChecksFor([]string{msg.name}, true))
+		}
+		return m, m.loadContexts
+
 	case guardStatusLoadedMsg:
 		if msg.err != nil {
 			m.errorMessage = msg.err.Error()
@@ -441,6 +460,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					menuLabel := MenuItems[m.menuCursor].Label
 					ctx := m.filteredCtx[m.contextCursor]
 					switch menuLabel {
+					case "Edit Context":
+						return m, m.editContext(ctx.Name)
 					case "Rename Context":
 						m.currentView = ViewRenameContext
 						m.inputMode = InputNewName
@@ -694,6 +715,11 @@ func (m Model) selectMenuItem() (tea.Model, tea.Cmd) {
 		m.textInput.Placeholder = "path to kubeconfig file..."
 		m.textInput.Focus()
 		return m, textinput.Blink
+	case "Edit Context":
+		m.currentView = ViewContextList
+		m.contextCursor = 0
+		m.resetFilter()
+		return m, m.loadContexts
 	case "Rename Context":
 		m.currentView = ViewContextList
 		m.contextCursor = 0
@@ -729,6 +755,8 @@ func (m Model) updateContextList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.filteredCtx) > 0 {
 			ctx := m.filteredCtx[m.contextCursor]
 			switch menuLabel {
+			case "Edit Context":
+				return m, m.editContext(ctx.Name)
 			case "Rename Context":
 				m.currentView = ViewRenameContext
 				m.inputMode = InputNewName
@@ -754,6 +782,8 @@ func (m Model) updateContextList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.filteredCtx) > 0 {
 			ctx := m.filteredCtx[m.contextCursor]
 			switch msg.String() {
+			case "ctrl+e":
+				return m, m.editContext(ctx.Name)
 			case "ctrl+r":
 				m.currentView = ViewRenameContext
 				m.inputMode = InputNewName
@@ -1181,6 +1211,7 @@ func (m Model) renderHelp() string {
 		addKey("enter", "select")
 	case ViewContextList:
 		addKey("enter", "select")
+		addKey("ctrl+e", "edit")
 		addKey("ctrl+r", "rename")
 		addKey("ctrl+d", "delete")
 		addKey("type", "filter")
@@ -1289,6 +1320,8 @@ func (m Model) viewContextList() string {
 	menuLabel := MenuItems[m.menuCursor].Label
 	var title string
 	switch menuLabel {
+	case "Edit Context":
+		title = HeaderStyle.Render(IconEdit + " Select context to edit")
 	case "Rename Context":
 		title = HeaderStyle.Render(IconRename + " Select context to rename")
 	case "Remove Context":
@@ -1561,6 +1594,12 @@ type contextRemovedMsg struct {
 	err  error
 }
 
+type contextEditedMsg struct {
+	name   string
+	update *application.ContextUpdate
+	err    error
+}
+
 type guardStatusLoadedMsg struct {
 	status *application.GuardStatus
 	err    error
@@ -1794,6 +1833,22 @@ func (m Model) removeContext(name string) tea.Cmd {
 	}
 }
 
+func (m Model) editContext(name string) tea.Cmd {
+	session := &contextEditSession{
+		service:        m.service,
+		kubeconfigPath: config.GetKubeconfigPath(),
+		contextName:    name,
+		terminalStderr: m.stderrGuard.TerminalStderr(),
+	}
+
+	return tea.Exec(session, func(err error) tea.Msg {
+		if err != nil {
+			return contextEditedMsg{name: name, err: err}
+		}
+		return contextEditedMsg{name: name, update: session.update, err: session.err}
+	})
+}
+
 func (m Model) showCurrentInfo() tea.Msg {
 	kubeconfigPath := config.GetKubeconfigPath()
 	contexts, err := m.service.ListContexts(kubeconfigPath)
@@ -2022,9 +2077,8 @@ func Run() error {
 	if err != nil {
 		return err
 	}
-	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
-	_, err = p.Run()
-	return err
+
+	return runProgram(model)
 }
 
 func RunWithConfig(kubeconfigPath string, healthSvc *healthservice.Service) error {
@@ -2034,7 +2088,35 @@ func RunWithConfig(kubeconfigPath string, healthSvc *healthservice.Service) erro
 	if err != nil {
 		return err
 	}
-	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
-	_, err = p.Run()
+
+	return runProgram(model)
+}
+
+// debugStderrEnv makes the TUI print the standard error it captured while it
+// owned the terminal.
+const debugStderrEnv = "KUBECFG_DEBUG_STDERR"
+
+// runProgram keeps stray standard error output, such as credential plugin
+// diagnostics, out of the screen the TUI draws on. The captured output is
+// printed after the TUI exits when it failed, or when KUBECFG_DEBUG_STDERR is
+// set.
+func runProgram(model Model) (err error) {
+	guard, guardErr := termguard.Capture()
+	if guardErr == nil {
+		model.stderrGuard = guard
+		defer func() {
+			captured := guard.Release()
+			if captured == "" {
+				return
+			}
+			if err != nil || os.Getenv(debugStderrEnv) != "" {
+				fmt.Fprint(os.Stderr, captured)
+			}
+		}()
+	}
+
+	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	_, err = program.Run()
+
 	return err
 }

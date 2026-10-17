@@ -167,6 +167,7 @@ const (
 	IconInfo      = "ℹ"
 	IconExit      = "⏻"
 	IconAdd       = "+"
+	IconEdit      = "✐"
 	IconRename    = "✎"
 	IconRemove    = "−"
 	IconGuard     = "G"
@@ -189,6 +190,7 @@ var MenuItems = []MenuItem{
 	{Icon: IconGuard, Label: "Guard"},
 	{Icon: IconPolicy, Label: "Policies"},
 	{Icon: IconAdd, Label: "Add Context"},
+	{Icon: IconEdit, Label: "Edit Context"},
 	{Icon: IconRename, Label: "Rename Context"},
 	{Icon: IconRemove, Label: "Remove Context"},
 	{Icon: IconInfo, Label: "Current Info"},

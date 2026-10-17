@@ -9,6 +9,8 @@ var (
 	ErrUserNotFound         = errors.New("user not found")
 	ErrContextExists        = errors.New("context already exists")
 	ErrInvalidConfig        = errors.New("invalid kubeconfig format")
+	ErrAmbiguousContext     = errors.New("kubeconfig holds multiple contexts; set current-context to select one")
+	ErrEditAborted          = errors.New("edit aborted")
 	ErrBackupFailed         = errors.New("failed to create backup")
 	ErrBackupNotFound       = errors.New("backup not found")
 	ErrRestoreFailed        = errors.New("failed to restore backup")
