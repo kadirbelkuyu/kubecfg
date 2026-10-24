@@ -12,3 +12,5 @@ docs/GIT_WORKFLOW.md
 docs/GIT_CHEATSHEET.md
 .gemini/
 .cache/
+.gooze-reports
+.gooze.log*
